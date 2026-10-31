@@ -302,11 +302,11 @@ Bật/tắt từng công tắc **sau khi đã ANALYZE** và ghi lại cái nào 
 
 ## 7. Kết quả thực nghiệm trong lab (đo thực tế)
 
-**Môi trường:** Docker trên Windows (8 vCPU, 8 GB), `postgres:13` (13.23) → `pg_upgrade` thật bằng `tianon/postgres-upgrade:13-to-17` → `postgres:17` (17.11). Hai instance dùng **cùng tham số** (`shared_buffers=1GB, work_mem=64MB, random_page_cost=1.1, …`); `hash_mem_multiplier` để mặc định của từng bản (PG13 = 1, PG17 = 2). Mỗi câu UPDATE chạy bằng `BEGIN; EXPLAIN (ANALYZE, TIMING OFF) …; ROLLBACK;`. Cách chạy lại: xem [`README.md`](README.md).
+**Môi trường:** Docker trên Windows (8 vCPU, 8 GB), `postgres:13` (13.23) → `pg_upgrade` thật bằng `tianon/postgres-upgrade:13-to-17` → `postgres:17` (17.11). Hai instance dùng **cùng tham số** (`shared_buffers=1GB, work_mem=64MB, random_page_cost=1.1, …`); `hash_mem_multiplier` để mặc định của từng bản (PG13 = 1, PG17 = 2). Mỗi câu UPDATE chạy bằng `BEGIN; EXPLAIN (ANALYZE, TIMING OFF) …; ROLLBACK;`. Cách chạy lại: xem [`lab/README.md`](../lab/README.md).
 Dữ liệu là **dữ liệu tổng hợp** được thiết kế có phân bố lệch/tương quan. Lab chứng minh **cơ chế**, không khẳng định đây chính là nguyên nhân trong production; cần đối chiếu bằng plan thật (Mục 4).
 Lưu ý độ chính xác: một số phép đo chạy song song với query khác trên cùng máy (CASE 2 timeout chạy cùng lúc với CASE 3/4; ngoài ra có một session lạ trên DB `pgdoctor_fx` của pg17 khi đo CASE 4). Thời gian tuyệt đối có thể lệch vài chục %, nhưng **hệ số hàng chục–hàng trăm lần đến từ khác biệt plan**, không phải do nhiễu.
 
-> 📄 **Giải thích EXPLAIN từng dòng, từng case (plan đầy đủ PG13 vs PG17):** xem [`explain-walkthrough.md`](explain-walkthrough.md). Output nguyên văn: thư mục `results/`.
+> 📄 **Giải thích EXPLAIN từng dòng, từng case (plan đầy đủ PG13 vs PG17):** xem [`explain-walkthrough.md`](explain-walkthrough.md). Output nguyên văn: thư mục `lab/results/`.
 
 ### 7.0 Tổng hợp
 
@@ -318,7 +318,7 @@ Lưu ý độ chính xác: một số phép đo chạy song song với query kh�
 | CASE 2 sau `VACUUM; REINDEX; ANALYZE` | PG17 đã ANALYZE | 4.7 s | 6.0 s | ≈ 1.3× | Plan trở lại giống PG13 (đúng như dự án đã làm, nên đây **không** phải nguyên nhân của dự án) |
 | CASE 1: CTE + join (đối chứng) | Đã ANALYZE cả hai | 24.5 s | 15.0 s | PG17 nhanh hơn | Plan tương đương; nhưng ước lượng khác nhau rõ (xem 7.4) |
 
-### 7.1 ★ CASE 4 – mẫu câu của dự án (`NOT IN` + CTE)  — `sql/case4_setup.sql`, `sql/case4_update.sql`
+### 7.1 ★ CASE 4 – mẫu câu của dự án (`NOT IN` + CTE)  — `lab/sql/case4_setup.sql`, `lab/sql/case4_update.sql`
 
 **Câu query** (cùng "hình dạng" với câu của dự án):
 ```sql
@@ -372,7 +372,7 @@ Dòng thứ 2 cho thấy: khi PG13 cũng được biết stats thật (CTE inlin
 
 **Sửa bền vững:** viết lại `NOT IN (subquery)` thành `NOT EXISTS` (anti-join, không phụ thuộc ngưỡng bộ nhớ; chú ý ngữ nghĩa NULL: `NOT IN` trả rỗng nếu subquery có NULL, `NOT EXISTS` thì không). Tạm thời: tăng `work_mem` cho session chạy batch.
 
-### 7.2 CASE 3 – CTE dùng 2 lần + điều kiện lọc trên cột CTE  — `sql/case3_setup.sql`, `sql/case3_update.sql`
+### 7.2 CASE 3 – CTE dùng 2 lần + điều kiện lọc trên cột CTE  — `lab/sql/case3_setup.sql`, `lab/sql/case3_update.sql`
 ```sql
 WITH open_orders AS MATERIALIZED (SELECT id, customer_id, cust_code, amount, priority, created_at
                                   FROM orders2 WHERE status = 'OPEN')
@@ -396,14 +396,14 @@ Dữ liệu: 2M đơn, 0.5% `OPEN` (10k). Mọi đơn OPEN đều mới, ưu ti�
 Thực nghiệm sửa trên PG17: `open_orders AS NOT MATERIALIZED` cho 0.37 s (planner dùng index `orders2(customer_id)`), `SET enable_nestloop=off` (chỉ để chẩn đoán) cho 0.28 s.
 Hệ số tăng theo **bình phương** số dòng thực của CTE: 10k dòng ra 72×, CTE trăm nghìn dòng có thể thành hàng giờ.
 
-### 7.3 CASE 2 – ngay sau `pg_upgrade`, chưa ANALYZE  — `sql/case2_update_nostats.sql` (DB `shop`)
+### 7.3 CASE 2 – ngay sau `pg_upgrade`, chưa ANALYZE  — `lab/sql/case2_update_nostats.sql` (DB `shop`)
 Tái hiện đúng trạng thái Cloud SQL **ngay sau** in-place upgrade (đã kiểm tra: `pg_class.reltuples = -1`, `pg_stats` rỗng; `pg_upgrade` in ra *"Optimizer statistics are not transferred by pg_upgrade"*).
 - PG13: Merge Join + Hash Join, **4.7 s** (thực tế 32k × 499k → 32M cặp).
 - PG17 chưa ANALYZE: CTE `open_orders` và `hot_complaints` mỗi cái ước lượng **1 dòng** (thực tế 32k / 499k). Planner dựng `Nested Loop (outer = hot_complaints, inner = Hash Join(Seq Scan customers 500k, open_orders))`, nghĩa là nhánh inner chạy lại cho **mỗi** dòng của `hot_complaints`. Kết quả: **> 900 s**, bị `statement_timeout = 15min` cắt ngang (chưa xong).
 - Sau `VACUUM; REINDEX DATABASE; ANALYZE`: **6.0 s** (Hash Join như PG13; ước lượng join 2.9M so với thực tế 32M nhưng plan vẫn đúng).
 - Kết luận: case này giải thích được các query chậm **ngay sau upgrade**. Dự án đã ANALYZE mà vẫn chậm, nên nguyên nhân của dự án nhiều khả năng thuộc nhóm CASE 3/4.
 
-### 7.4 CASE 1 – đối chứng ước lượng (không phải regression)  — `sql/case1_update.sql`
+### 7.4 CASE 1 – đối chứng ước lượng (không phải regression)  — `lab/sql/case1_update.sql`
 CTE `OPEN` (40k dòng, chỉ thuộc 500 khách) join `complaints` (1M dòng, 500 khách):
 
 | | Ước lượng join | Ước lượng nhóm | Thực tế | Thời gian |

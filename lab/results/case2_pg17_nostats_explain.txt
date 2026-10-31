@@ -1,0 +1,31 @@
+                                                                                                                        QUERY PLAN                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on customer_stats cs  (cost=20985.50..20987.75 rows=0 width=0)
+   CTE open_orders
+     ->  Bitmap Heap Scan on orders o  (cost=69.17..7588.18 rows=1 width=52)
+           Recheck Cond: (status = 'OPEN'::text)
+           Filter: ((amount >= '100'::numeric) AND (amount <= '100000'::numeric) AND (created_at >= '2024-03-01 00:00:00'::timestamp without time zone) AND (created_at <= '2030-01-01 00:00:00'::timestamp without time zone) AND (note ~~ 'xx%'::text))
+           ->  Bitmap Index Scan on orders_status_idx  (cost=0.00..69.16 rows=7845 width=0)
+                 Index Cond: (status = 'OPEN'::text)
+   CTE hot_complaints
+     ->  Bitmap Heap Scan on complaints c  (cost=62.63..4790.84 rows=1 width=6)
+           Recheck Cond: ((customer_id >= 1) AND (customer_id <= 1000000))
+           Filter: ((severity >= 3) AND (severity <= 5) AND (body ~~ 'y%'::text))
+           ->  Bitmap Index Scan on complaints_customer_idx  (cost=0.00..62.63 rows=5670 width=0)
+                 Index Cond: ((customer_id >= 1) AND (customer_id <= 1000000))
+   ->  Nested Loop  (cost=8606.48..8608.72 rows=1 width=122)
+         ->  Subquery Scan on s  (cost=8606.05..8606.08 rows=1 width=112)
+               ->  HashAggregate  (cost=8606.05..8606.07 rows=1 width=44)
+                     Group Key: oo.customer_id
+                     ->  Nested Loop  (cost=0.03..8591.41 rows=1953 width=20)
+                           Join Filter: (oo.customer_id = hc.customer_id)
+                           ->  CTE Scan on hot_complaints hc  (cost=0.00..0.02 rows=1 width=4)
+                           ->  Hash Join  (cost=0.03..8566.97 rows=1953 width=20)
+                                 Hash Cond: (cu.name = oo.cust_code)
+                                 ->  Seq Scan on customers cu  (cost=0.00..7082.48 rows=390648 width=32)
+                                 ->  Hash  (cost=0.02..0.02 rows=1 width=52)
+                                       ->  CTE Scan on open_orders oo  (cost=0.00..0.02 rows=1 width=52)
+         ->  Index Scan using customer_stats_pkey on customer_stats cs  (cost=0.42..2.64 rows=1 width=10)
+               Index Cond: (customer_id = s.customer_id)
+ Settings: work_mem = '64MB', random_page_cost = '1.1'
+(28 rows)

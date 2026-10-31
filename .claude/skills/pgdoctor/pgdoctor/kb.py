@@ -220,11 +220,11 @@ _R: List[Rule] = [
          "trong CTE đã được lọc và các cột thường TƯƠNG QUAN (vd. đơn OPEN đều là đơn mới, ưu tiên cao, giá trị lớn). Kết quả: "
          "ước lượng sụp còn 1 dòng → Nested Loop quét lại CTE. PG13 không có stats cho cột CTE nên dùng hằng mặc định và "
          "'may mắn' ước lượng lớn hơn. Đây KHÔNG phải do thiếu ANALYZE – ANALYZE lại không giúp được.",
-         "Đưa điều kiện lọc vào trong CTE hoặc dùng NOT MATERIALIZED (để planner thấy bảng gốc và có thể dùng extended "
-         "statistics); tạo CREATE STATISTICS (dependencies, mcv) trên các cột tương quan ở bảng gốc; hoặc materialize vào temp "
-         "table rồi ANALYZE.",
-         ["CREATE STATISTICS <s> (dependencies, mcv) ON <c1>, <c2>, <c3> FROM <base_table>; ANALYZE <base_table>;",
-          "WITH x AS NOT MATERIALIZED (...)   -- thử trong transaction và so sánh plan"],
+         "Dùng NOT MATERIALIZED (planner thấy bảng gốc và index – lab CASE 3: 20.6 s → 0.37 s); hoặc materialize vào temp "
+         "table + index rồi ANALYZE để có stats của CHÍNH tập con. Lưu ý: CREATE STATISTICS trên bảng gốc KHÔNG giúp được "
+         "CTE Scan materialized (planner chỉ mượn stats từng cột) – đã thử trong lab, ước lượng vẫn 1 dòng.",
+         ["WITH x AS NOT MATERIALIZED (...)   -- thử trong transaction và so sánh plan",
+          "CREATE TEMP TABLE x AS <cte query>; CREATE INDEX ON x(<join key>); ANALYZE x;"],
          ["cte_stats_pganalyze", "ext_stats", "boringsql_cte"], since="17"),
     Rule("CMP-SETTINGS", "Tham số planner khác nhau (theo EXPLAIN SETTINGS)", "compare",
          "Các tham số được in bởi EXPLAIN (SETTINGS) khác nhau giữa hai lần chạy – plan có thể khác vì cấu hình chứ không vì phiên bản.",

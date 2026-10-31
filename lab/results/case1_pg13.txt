@@ -1,0 +1,41 @@
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on customer_stats cs  (cost=1514225.02..1514737.80 rows=200 width=126) (actual time=26941.021..26941.027 rows=0 loops=1)
+   Buffers: shared hit=47053 dirtied=19 written=4
+   CTE open_orders
+     ->  Index Scan using orders_status_idx on orders o  (cost=0.43..3147.87 rows=38333 width=10) (actual time=160.239..399.086 rows=40000 loops=1)
+           Index Cond: (status = 'OPEN'::text)
+           Buffers: shared hit=30801
+   CTE per_customer
+     ->  HashAggregate  (cost=1511074.23..1511076.73 rows=200 width=44) (actual time=26924.551..26924.819 rows=500 loops=1)
+           Group Key: oo.customer_id
+           Batches: 1  Memory Usage: 313kB
+           Buffers: shared hit=41111
+           ->  Hash Join  (cost=32810.00..936079.23 rows=76666000 width=20) (actual time=350.382..17476.904 rows=80071993 loops=1)
+                 Hash Cond: (oo.customer_id = c.customer_id)
+                 Buffers: shared hit=41111
+                 ->  CTE Scan on open_orders oo  (cost=0.00..766.66 rows=38333 width=20) (actual time=160.245..453.862 rows=40000 loops=1)
+                       Buffers: shared hit=30801
+                 ->  Hash  (cost=20310.00..20310.00 rows=1000000 width=4) (actual time=174.016..174.018 rows=1000000 loops=1)
+                       Buckets: 1048576  Batches: 1  Memory Usage: 43349kB
+                       Buffers: shared hit=10310
+                       ->  Seq Scan on complaints c  (cost=0.00..20310.00 rows=1000000 width=4) (actual time=0.069..78.873 rows=1000000 loops=1)
+                             Buffers: shared hit=10310
+   ->  Nested Loop  (cost=0.42..513.20 rows=200 width=126) (actual time=26924.625..26926.729 rows=500 loops=1)
+         Buffers: shared hit=43111 dirtied=4
+         ->  CTE Scan on per_customer p  (cost=0.00..4.00 rows=200 width=112) (actual time=26924.579..26925.078 rows=500 loops=1)
+               Buffers: shared hit=41111
+         ->  Index Scan using customer_stats_pkey on customer_stats cs  (cost=0.42..2.54 rows=1 width=10) (actual time=0.003..0.003 rows=1 loops=500)
+               Index Cond: (customer_id = p.customer_id)
+               Buffers: shared hit=2000 dirtied=4
+ Settings: random_page_cost = '1.1', work_mem = '64MB'
+ Planning:
+   Buffers: shared hit=191
+ Planning Time: 0.432 ms
+ JIT:
+   Functions: 26
+   Options: Inlining true, Optimization true, Expressions true, Deforming true
+   Timing: Generation 0.614 ms, Inlining 60.152 ms, Optimization 58.916 ms, Emission 41.239 ms, Total 160.921 ms
+ Execution Time: 26963.202 ms
+(37 rows)
+

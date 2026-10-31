@@ -1,12 +1,14 @@
-"""Regression tests for pgdoctor, using real plans captured from the PG13/PG17 docker lab (samples/)."""
+"""Regression tests for pgdoctor, using real plans captured from the PG13/PG17 docker lab (tests/samples/).
+
+Run from the repo root:  python -m unittest discover -s tests -v"""
 import os
 import sys
 import unittest
 from html.parser import HTMLParser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
-sys.path.insert(0, ROOT)
+REPO = os.path.dirname(HERE)
+sys.path.insert(0, os.path.join(REPO, ".claude", "skills", "pgdoctor"))
 
 from pgdoctor.compare import compare_plans  # noqa: E402
 from pgdoctor.findings import SEV_RANK  # noqa: E402
@@ -17,7 +19,7 @@ from pgdoctor.rules_plan import analyze_plan  # noqa: E402
 from pgdoctor.settings import compare_settings, load_settings  # noqa: E402
 from pgdoctor.statements import compare_statements, load_statements  # noqa: E402
 
-S = os.path.join(ROOT, "samples")
+S = os.path.join(HERE, "samples")
 
 
 def plans(name, sub="plans", ext="json"):

@@ -1,3 +1,5 @@
+name: 1pg13-to-pg17   # giữ tên project cũ để dùng lại volume pgdata13/pgdata17 đã có
+
 # Mô phỏng Cloud SQL PG13 -> PG17 (in-place upgrade bằng pg_upgrade)
 #
 # Luồng (xem scripts/repro.ps1):

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tạo lại plan mẫu từ lab docker (pg13 / pg17). Chạy từ thư mục samples/lab.
+# Tạo lại dữ liệu mẫu cho tests/ từ lab docker (pg13 / pg17). Chạy trong thư mục lab/fixtures.
 set -euo pipefail
-OUT=../plans; OUTT=../plans_text; DB=pgdoctor_fx
+OUT=../../tests/samples/plans; OUTT=../../tests/samples/plans_text; DB=pgdoctor_fx
 psqlc(){ docker exec -i "$1" psql -U postgres -d "$DB" -X -q -At "${@:2}"; }
 for c in pg13 pg17; do
   docker exec "$c" psql -U postgres -X -q -c "DROP DATABASE IF EXISTS $DB" -c "CREATE DATABASE $DB"
@@ -39,10 +39,10 @@ psqlc pg13 -c "ANALYZE"
 psqlc pg17 -c "ANALYZE ord" || echo "(dự kiến) ANALYZE ord lỗi trên PG17 vì search_path an toàn"
 export MSYS_NO_PATHCONV=1
 for c in pg13 pg17; do
-  mkdir -p ../collected/$c
+  mkdir -p ../../tests/samples/collected/$c
   docker exec $c sh -c "rm -rf /tmp/pgdoctor && mkdir -p /tmp/pgdoctor && chmod 777 /tmp/pgdoctor"
-  docker cp ../../collect/pgdoctor_collect.sql $c:/tmp/pgdoctor/collect.sql >/dev/null
+  docker cp ../../.claude/skills/pgdoctor/collect/pgdoctor_collect.sql $c:/tmp/pgdoctor/collect.sql >/dev/null
   docker exec -u postgres $c sh -c "cd /tmp/pgdoctor && psql -d $DB -X -q -v ON_ERROR_STOP=1 -f collect.sql"
-  for f in settings.json health.json; do docker cp $c:/tmp/pgdoctor/$f ../collected/$c/$f >/dev/null; done
+  for f in settings.json health.json; do docker cp $c:/tmp/pgdoctor/$f ../../tests/samples/collected/$c/$f >/dev/null; done
 done
 echo done

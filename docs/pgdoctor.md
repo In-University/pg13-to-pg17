@@ -1,9 +1,9 @@
-# pgdoctor – phát hiện regression khi nâng cấp PostgreSQL 13 → 17 (offline)
+# pgdoctor (skill `.claude/skills/pgdoctor`) – phát hiện regression khi nâng cấp PostgreSQL 13 → 17 (offline)
 
 `pgdoctor` đọc các **file** thu thập từ hai server (bản cũ / bản mới) và chỉ ra *vì sao* một query chậm đi sau khi upgrade, kèm bằng chứng, giải thích và cách xử lý. Tool **không kết nối database**, chỉ dùng thư viện chuẩn Python (≥ 3.8), không cần `pip install`.
 
 ```
-python -m pgdoctor analyze --old-plan q.pg13.json --new-plan q.pg17.json -o report.html
+python .claude/skills/pgdoctor/pgdoctor_cli.py analyze --old-plan q.pg13.json --new-plan q.pg17.json -o report.html
 ```
 
 Kết quả là một file `report.html` tự chứa (mở offline được, có chế độ sáng/tối), kèm tóm tắt in ra console. Có thể xuất thêm `--json findings.json` hoặc dùng `--fail-on high` để làm gate trong CI.
@@ -34,7 +34,7 @@ Kết quả là một file `report.html` tự chứa (mở offline được, có
 | **Cấu hình** | `SET-DIFF`, `SET-ENABLE-OFF`, `SET-REMOVED`, `SET-NEW-PLANNER-GUC` | Tham số planner khác nhau (vd. `hash_mem_multiplier` mặc định 1 → 2), enable_* bị tắt, flag bị bỏ ở PG14–17, công tắc planner mới để chẩn đoán |
 | **pg_stat_statements** | `PGSS-REGRESSION`, `PGSS-TEMP`, `PGSS-IO` | Query nào chậm đi nhiều nhất (ghép theo text đã chuẩn hoá vì `queryid` có thể đổi giữa các major version) |
 
-★ là các pattern đã được **tái hiện và đo thật** trong lab docker của dự án. Xem `python -m pgdoctor kb` hoặc mục *Knowledge base* trong report để đọc giải thích và nguồn của từng rule.
+★ là các pattern đã được **tái hiện và đo thật** trong lab docker của dự án. Xem `python .claude/skills/pgdoctor/pgdoctor_cli.py kb` hoặc mục *Knowledge base* trong report để đọc giải thích và nguồn của từng rule.
 
 ## 2. Thu thập dữ liệu (chạy trên cả hai server)
 
@@ -58,7 +58,7 @@ psql "host=... dbname=... user=..." -X -q -At -f explain_q1.sql > plans/q1.pg13.
 ### 2.2 Snapshot cấu hình, thống kê, pg_stat_statements
 ```bash
 mkdir -p out/pg13 && cd out/pg13
-psql "host=<pg13> dbname=<db> user=<user>" -X -v ON_ERROR_STOP=1 -f ../../collect/pgdoctor_collect.sql
+psql "host=<pg13> dbname=<db> user=<user>" -X -v ON_ERROR_STOP=1 -f <skill>/collect/pgdoctor_collect.sql
 # lặp lại cho PG17 vào out/pg17
 ```
 Collector ghi ra `settings.json`, `health.json`, và `statements.json` (nếu đã cài `pg_stat_statements`). Collector:
@@ -71,8 +71,7 @@ Lưu ý: `statements.json` có chứa text query (đã normalise thành `$1`…)
 ## 3. Chạy phân tích
 
 ```bash
-cd tools/pgdoctor
-python -m pgdoctor analyze \
+python .claude/skills/pgdoctor/pgdoctor_cli.py analyze \
   --plans-dir plans/ \
   --old-dir out/pg13 --new-dir out/pg17 \
   -o report.html --json findings.json
@@ -92,7 +91,7 @@ Khi bản cũ và bản mới cùng có vấn đề, finding thuộc **bản cũ
 
 ## 4. Thử ngay với dữ liệu mẫu
 
-`samples/` chứa plan **thật** chụp từ lab docker (PG 13.23 và PG 17.11, PG17 được tạo bằng `pg_upgrade` thật):
+`tests/samples/` chứa plan **thật** chụp từ lab docker (PG 13.23 và PG 17.11, PG17 được tạo bằng `pg_upgrade` thật):
 
 | Mẫu | Nội dung | Kết quả đo |
 |---|---|---|
@@ -105,13 +104,14 @@ Khi bản cũ và bản mới cùng có vấn đề, finding thuộc **bản cũ
 | `synthetic/` | pg_stat_statements **giả lập** (chỉ để kiểm thử module, không phải số đo) | |
 
 ```bash
-python -m pgdoctor analyze --plans-dir samples/plans --old-dir samples/collected/pg13 --new-dir samples/collected/pg17 \
-  --old-statements samples/synthetic/statements.pg13.json --new-statements samples/synthetic/statements.pg17.csv \
-  -o samples/report_full.html
-python -m unittest discover -s tests -v
+python .claude/skills/pgdoctor/pgdoctor_cli.py analyze --plans-dir tests/samples/plans \
+  --old-dir tests/samples/collected/pg13 --new-dir tests/samples/collected/pg17 \
+  --old-statements tests/samples/synthetic/statements.pg13.json \
+  --new-statements tests/samples/synthetic/statements.pg17.csv -o tests/samples/report_full.html
+python -m unittest discover -s tests -v   # chạy ở thư mục gốc repo
 ```
 
-Muốn tạo lại các mẫu: dựng lab ở thư mục gốc dự án, rồi chạy `bash capture.sh` trong `samples/lab`. Script tạo database riêng `pgdoctor_fx` trên cả hai container, chụp plan qA–qD, áp dụng `fx_health_extra.sql` và chạy collector. Mẫu `qE` lấy từ database `lab4` (`sql/case4_setup.sql` của lab) và chỉ được chụp nếu database đó đã tồn tại.
+Muốn tạo lại các mẫu: dựng lab (`bash lab/scripts/repro.sh`), rồi chạy `bash capture.sh` trong `lab/fixtures`. Script tạo database riêng `pgdoctor_fx` trên cả hai container, chụp plan qA–qD, áp dụng `fx_health_extra.sql` và chạy collector. Mẫu `qE` lấy từ database `lab4` (`lab/sql/case4_setup.sql`) và chỉ được chụp nếu database đó đã tồn tại.
 
 ## 5. Giới hạn (đọc trước khi kết luận)
 - Mọi rule là **heuristic**. Hãy xác nhận bằng `EXPLAIN (ANALYZE, BUFFERS)` và thử nghiệm `SET LOCAL …` trong transaction rồi `ROLLBACK`.
