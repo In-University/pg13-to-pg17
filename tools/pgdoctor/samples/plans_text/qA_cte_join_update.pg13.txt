@@ -1,0 +1,45 @@
+Update on acct_stats s  (cost=17819.49..22028.89 rows=175663 width=162) (actual time=243.252..243.259 rows=0 loops=1)
+  Buffers: shared hit=30782 dirtied=24 written=24
+  CTE refunds
+    ->  HashAggregate  (cost=8216.75..8242.27 rows=2042 width=36) (actual time=36.535..37.877 rows=3935 loops=1)
+          Group Key: ev.cust
+          Batches: 1  Memory Usage: 2257kB
+          Buffers: shared hit=2206
+          ->  Seq Scan on ev  (cost=0.00..8206.00 rows=2150 width=10) (actual time=0.011..33.483 rows=4354 loops=1)
+                Filter: (flag AND (created >= '2024-03-01'::date) AND (amount > '10'::numeric) AND (kind = 'refund'::text) AND (region = 'APAC'::text))
+                Rows Removed by Filter: 295646
+                Buffers: shared hit=2206
+  CTE sales
+    ->  HashAggregate  (cost=7654.24..7869.30 rows=17205 width=36) (actual time=135.922..151.445 rows=16540 loops=1)
+          Group Key: ev_1.cust
+          Batches: 1  Memory Usage: 8977kB
+          Buffers: shared hit=2206
+          ->  Seq Scan on ev ev_1  (cost=0.00..7456.00 rows=39648 width=10) (actual time=0.026..93.765 rows=35200 loops=1)
+                Filter: ((NOT flag) AND (created >= '2024-03-01'::date) AND (kind = 'sale'::text) AND (region = 'APAC'::text))
+                Rows Removed by Filter: 264800
+                Buffers: shared hit=2206
+  ->  Merge Join  (cost=1707.91..5917.31 rows=175663 width=162) (actual time=211.867..228.553 rows=3262 loops=1)
+        Merge Cond: (r.cust = x.cust)
+        Buffers: shared hit=11226
+        ->  Merge Join  (cost=153.39..844.42 rows=2042 width=106) (actual time=40.272..49.927 rows=3935 loops=1)
+              Merge Cond: (s.cust = r.cust)
+              Buffers: shared hit=9020
+              ->  Index Scan using acct_stats_pkey on acct_stats s  (cost=0.29..598.89 rows=24720 width=10) (actual time=0.026..6.309 rows=19989 loops=1)
+                    Buffers: shared hit=6814
+              ->  Sort  (cost=153.11..158.21 rows=2042 width=96) (actual time=40.227..40.866 rows=3935 loops=1)
+                    Sort Key: r.cust
+                    Sort Method: quicksort  Memory: 404kB
+                    Buffers: shared hit=2206
+                    ->  CTE Scan on refunds r  (cost=0.00..40.84 rows=2042 width=96) (actual time=36.574..39.142 rows=3935 loops=1)
+                          Buffers: shared hit=2206
+        ->  Sort  (cost=1554.52..1597.53 rows=17205 width=96) (actual time=171.560..174.008 rows=16531 loops=1)
+              Sort Key: x.cust
+              Sort Method: quicksort  Memory: 2061kB
+              Buffers: shared hit=2206
+              ->  CTE Scan on sales x  (cost=0.00..344.10 rows=17205 width=96) (actual time=135.936..163.442 rows=16540 loops=1)
+                    Buffers: shared hit=2206
+Settings: random_page_cost = '1.1', work_mem = '64MB'
+Planning:
+  Buffers: shared hit=135
+Planning Time: 0.562 ms
+Execution Time: 244.960 ms

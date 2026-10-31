@@ -1,0 +1,6 @@
+queryid,query,calls,total_exec_time,mean_exec_time,rows,shared_blks_hit,shared_blks_read,temp_blks_written
+999,"WITH open_orders AS MATERIALIZED (SELECT customer_id, amount   FROM orders WHERE status = $1)
+UPDATE customer_stats cs SET open_amount = s.total FROM (SELECT customer_id, sum(amount) total FROM open_orders GROUP BY 1) s WHERE cs.customer_id = s.customer_id",3,21600000,7200000,1500,90000000,500000,0
+888,SELECT * FROM customers WHERE id = $1,480000,24000,0.05,480000,1900000,90,0
+777,"SELECT segment, count(*) FROM customers c JOIN orders o ON o.customer_id = c.id GROUP BY segment",100,700000,7000,5000,100000,1000,250000
+666,SELECT now(),10,1,0.1,10,0,0,0

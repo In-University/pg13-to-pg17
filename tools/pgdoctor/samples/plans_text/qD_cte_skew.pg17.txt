@@ -1,0 +1,24 @@
+HashAggregate  (cost=9271.63..9289.68 rows=1444 width=44) (actual time=2330.317..2330.372 rows=50 loops=1)
+  Group Key: o.cust
+  Batches: 1  Memory Usage: 97kB
+  Buffers: shared hit=1815
+  CTE open_o
+    ->  Seq Scan on ord  (cost=0.00..3774.00 rows=4187 width=10) (actual time=0.008..12.187 rows=4000 loops=1)
+          Filter: (status = 'OPEN'::text)
+          Rows Removed by Filter: 196000
+          Buffers: shared hit=1274
+  ->  Hash Join  (cost=136.08..4128.11 rows=182603 width=20) (actual time=13.549..874.529 rows=8077426 loops=1)
+        Hash Cond: (c.cust = o.cust)
+        Buffers: shared hit=1815
+        ->  Seq Scan on cmp c  (cost=0.00..1541.00 rows=100000 width=4) (actual time=0.007..12.016 rows=100000 loops=1)
+              Buffers: shared hit=541
+        ->  Hash  (cost=83.74..83.74 rows=4187 width=20) (actual time=13.492..13.494 rows=4000 loops=1)
+              Buckets: 8192  Batches: 1  Memory Usage: 232kB
+              Buffers: shared hit=1274
+              ->  CTE Scan on open_o o  (cost=0.00..83.74 rows=4187 width=20) (actual time=0.010..13.019 rows=4000 loops=1)
+                    Buffers: shared hit=1274
+Settings: work_mem = '64MB', random_page_cost = '1.1'
+Planning:
+  Buffers: shared hit=130
+Planning Time: 0.483 ms
+Execution Time: 2330.572 ms

@@ -1,0 +1,2 @@
+Đang làm dự án Upgrade Component, mục tiêu Upgrade từ PostgressSQL 13 lên PostgressSQL 17. Hạ tầng sử dụng CLoudSQL của google, sử dụng In-place Upgrade
+Vấn đề: Cùng 1 câu query khi ở PG13 chạy bình thường nhưng lên PG17 lại chậm đi rất nhiều lần. For example, 1 câu SQL (update, có dùng CTE, materialize, join nhiều bảng...)chỉ chạy 2 phút trên PG13 lại mất tới 2 tiếng trên PG17. Nghiên cứu chuyên sâu cho tôi những sự khác biệt gần giữa 2 SQL này. Viết ra markdown

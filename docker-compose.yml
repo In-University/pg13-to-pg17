@@ -1,0 +1,70 @@
+# Mô phỏng Cloud SQL PG13 -> PG17 (in-place upgrade bằng pg_upgrade)
+#
+# Luồng (xem scripts/repro.ps1):
+#   1. pg13   : khởi tạo + nạp dữ liệu (init/*.sql), VACUUM/ANALYZE như môi trường production
+#   2. stop pg13 (clean shutdown)
+#   3. upgrade: pg_upgrade --link/copy  volume pgdata13 -> pgdata17   (giống Cloud SQL in-place)
+#   4. pg17   : chạy trên volume pgdata17 (đã upgrade); chạy VACUUM + REINDEX + ANALYZE như dự án đã làm
+#
+# Cả hai instance dùng CÙNG tham số cấu hình (ép bằng -c) để loại nhiễu do config.
+
+x-pg-flags: &pgflags
+  - -c
+  - shared_buffers=1GB
+  - -c
+  - work_mem=64MB
+  - -c
+  - maintenance_work_mem=512MB
+  - -c
+  - effective_cache_size=4GB
+  - -c
+  - random_page_cost=1.1
+  - -c
+  - max_wal_size=4GB
+  - -c
+  - max_parallel_workers_per_gather=2
+  - -c
+  - track_io_timing=on
+  - -c
+  - log_min_duration_statement=60000
+
+services:
+  pg13:
+    image: postgres:13
+    container_name: pg13
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: shop
+    ports: ["5413:5432"]
+    volumes:
+      - pgdata13:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+      - ./sql:/sql:ro
+    command: *pgflags
+    shm_size: 1g
+
+  # Chỉ chạy bằng: docker compose --profile upgrade run --rm upgrade
+  upgrade:
+    image: tianon/postgres-upgrade:13-to-17
+    profiles: ["upgrade"]
+    volumes:
+      - pgdata13:/var/lib/postgresql/13/data
+      - pgdata17:/var/lib/postgresql/17/data
+    # Thêm "--link" nếu muốn hardlink (nhanh hơn); mặc định copy để giữ pgdata13 nguyên vẹn
+
+  pg17:
+    image: postgres:17
+    container_name: pg17
+    profiles: ["pg17"]
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports: ["5417:5432"]
+    volumes:
+      - pgdata17:/var/lib/postgresql/data
+      - ./sql:/sql:ro
+    command: *pgflags
+    shm_size: 1g
+
+volumes:
+  pgdata13:
+  pgdata17:

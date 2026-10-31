@@ -1,0 +1,30 @@
+# Tạo thư mục config riêng và thư mục chứa alias
+$configDir = "$env:USERPROFILE\.claude-account1"
+$aliasDir = "$env:USERPROFILE\bin"
+
+New-Item -ItemType Directory -Force $configDir, $aliasDir | Out-Null
+
+# Tạo claude1.cmd
+@'
+@echo off
+set "CLAUDE_CONFIG_DIR=%USERPROFILE%\.claude-account1"
+claude %*
+'@ | Set-Content "$aliasDir\claude1.cmd" -Encoding ASCII
+
+# Thêm thư mục alias vào User PATH
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+
+if (($userPath -split ';') -notcontains $aliasDir) {
+    $newPath = if ([string]::IsNullOrWhiteSpace($userPath)) {
+        $aliasDir
+    } else {
+        "$userPath;$aliasDir"
+    }
+
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+}
+
+# Cập nhật PATH cho terminal hiện tại
+$env:Path = "$aliasDir;$env:Path"
+
+Write-Host "Created claude1 successfully!"

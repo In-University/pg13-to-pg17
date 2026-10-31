@@ -1,0 +1,23 @@
+Update on products p  (cost=38574.76..55951791.09 rows=0 width=0)
+  CTE current_brand_code
+    ->  Hash Join  (cost=667.00..38574.47 rows=949241 width=10)
+          Hash Cond: (ba.brand_id = b.id)
+          ->  Hash Join  (cost=526.50..35937.11 rows=950380 width=7)
+                Hash Cond: (ba.store_id = s.id)
+                ->  Seq Scan on brand_assignments ba  (cost=0.00..32784.00 rows=1000400 width=8)
+                      Filter: is_current
+                ->  Hash  (cost=289.00..289.00 rows=19000 width=7)
+                      ->  Seq Scan on stores s  (cost=0.00..289.00 rows=19000 width=7)
+                            Filter: active
+          ->  Hash  (cost=78.00..78.00 rows=5000 width=11)
+                ->  Seq Scan on brands b  (cost=0.00..78.00 rows=5000 width=11)
+  ->  Index Scan using products_status_idx on products p  (cost=0.29..55913216.62 rows=2507 width=46)
+        Index Cond: (status = 'PENDING'::text)
+        Filter: (NOT (ANY (brand_code = (SubPlan 2).col1)))
+        SubPlan 2
+          ->  CTE Scan on current_brand_code cbc  (cost=0.00..21357.92 rows=379696 width=32)
+                Filter: (region = 'VN'::text)
+Settings: random_page_cost = '1.1'
+JIT:
+  Functions: 34
+  Options: Inlining true, Optimization true, Expressions true, Deforming true

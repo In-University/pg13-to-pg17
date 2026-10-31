@@ -1,0 +1,45 @@
+Update on acct_stats s  (cost=9954.92..9957.20 rows=0 width=0) (actual time=17627.919..17627.958 rows=0 loops=1)
+  Buffers: shared hit=39098 dirtied=26 written=26
+  I/O Timings: shared write=0.964
+  CTE refunds
+    ->  GroupAggregate  (cost=5162.05..5162.07 rows=1 width=36) (actual time=26.896..62.471 rows=3927 loops=1)
+          Group Key: ev.cust
+          Buffers: shared hit=2209
+          ->  Sort  (cost=5162.05..5162.06 rows=1 width=20) (actual time=26.881..32.915 rows=4352 loops=1)
+                Sort Key: ev.cust
+                Sort Method: quicksort  Memory: 329kB
+                Buffers: shared hit=2209
+                ->  Seq Scan on ev  (cost=0.00..5162.04 rows=1 width=20) (actual time=0.013..25.838 rows=4352 loops=1)
+                      Filter: (flag AND (created >= '2024-03-01'::date) AND (amount > '10'::numeric) AND (kind = 'refund'::text) AND (region = 'APAC'::text))
+                      Rows Removed by Filter: 295648
+                      Buffers: shared hit=2206
+  CTE sales
+    ->  GroupAggregate  (cost=4792.55..4792.57 rows=1 width=36) (actual time=61.587..85.376 rows=16617 loops=1)
+          Group Key: ev_1.cust
+          Buffers: shared hit=2206
+          ->  Sort  (cost=4792.55..4792.55 rows=1 width=20) (actual time=61.557..68.455 rows=35200 loops=1)
+                Sort Key: ev_1.cust
+                Sort Method: quicksort  Memory: 2637kB
+                Buffers: shared hit=2206
+                ->  Seq Scan on ev ev_1  (cost=0.00..4792.53 rows=1 width=20) (actual time=0.024..49.579 rows=35200 loops=1)
+                      Filter: ((NOT flag) AND (created >= '2024-03-01'::date) AND (kind = 'sale'::text) AND (region = 'APAC'::text))
+                      Rows Removed by Filter: 264800
+                      Buffers: shared hit=2206
+  ->  Nested Loop  (cost=0.29..2.56 rows=1 width=158) (actual time=88.618..17509.252 rows=3267 loops=1)
+        Join Filter: (r.cust = x.cust)
+        Rows Removed by Join Filter: 65251692
+        Buffers: shared hit=16196
+        ->  Nested Loop  (cost=0.29..2.52 rows=1 width=106) (actual time=27.005..137.871 rows=3927 loops=1)
+              Buffers: shared hit=13990
+              ->  CTE Scan on refunds r  (cost=0.00..0.02 rows=1 width=96) (actual time=26.945..70.903 rows=3927 loops=1)
+                    Buffers: shared hit=2209
+              ->  Index Scan using acct_stats_pkey on acct_stats s  (cost=0.29..2.50 rows=1 width=10) (actual time=0.012..0.012 rows=1 loops=3927)
+                    Index Cond: (cust = r.cust)
+                    Buffers: shared hit=11781
+        ->  CTE Scan on sales x  (cost=0.00..0.02 rows=1 width=96) (actual time=0.016..3.402 rows=16617 loops=3927)
+              Buffers: shared hit=2206
+Settings: work_mem = '64MB', random_page_cost = '1.1'
+Planning:
+  Buffers: shared hit=112
+Planning Time: 0.475 ms
+Execution Time: 17629.315 ms

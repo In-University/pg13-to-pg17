@@ -1,0 +1,25 @@
+GroupAggregate  (cost=4099.97..51785.92 rows=200 width=44) (actual time=29.988..2460.335 rows=50 loops=1)
+  Group Key: o.cust
+  Buffers: shared hit=1375
+  CTE open_o
+    ->  Seq Scan on ord  (cost=0.00..3774.00 rows=4073 width=10) (actual time=0.008..14.356 rows=4000 loops=1)
+          Filter: (status = 'OPEN'::text)
+          Rows Removed by Filter: 196000
+          Buffers: shared hit=1274
+  ->  Merge Join  (cost=325.97..32735.67 rows=2036500 width=20) (actual time=16.286..1463.938 rows=8082434 loops=1)
+        Merge Cond: (c.cust = o.cust)
+        Buffers: shared hit=1375
+        ->  Index Only Scan using cmp_cust_idx on cmp c  (cost=0.29..1612.49 rows=100000 width=4) (actual time=0.023..12.340 rows=100000 loops=1)
+              Heap Fetches: 185
+              Buffers: shared hit=101
+        ->  Sort  (cost=325.67..335.86 rows=4073 width=20) (actual time=16.257..356.682 rows=8081437 loops=1)
+              Sort Key: o.cust
+              Sort Method: quicksort  Memory: 284kB
+              Buffers: shared hit=1274
+              ->  CTE Scan on open_o o  (cost=0.00..81.46 rows=4073 width=20) (actual time=0.009..15.484 rows=4000 loops=1)
+                    Buffers: shared hit=1274
+Settings: random_page_cost = '1.1', work_mem = '64MB'
+Planning:
+  Buffers: shared hit=123
+Planning Time: 0.476 ms
+Execution Time: 2460.632 ms

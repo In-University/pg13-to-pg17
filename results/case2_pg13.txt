@@ -1,0 +1,77 @@
+SET
+BEGIN
+                                                                                                                        QUERY PLAN                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on customer_stats cs  (cost=111343.95..1849777.40 rows=200 width=126) (actual time=13559.065..13559.074 rows=0 loops=1)
+   Buffers: shared hit=5505 read=44301 dirtied=19 written=5
+   I/O Timings: read=3062.324
+   CTE open_orders
+     ->  Index Scan using orders_status_idx on orders o  (cost=0.43..3627.03 rows=30999 width=21) (actual time=418.151..2567.129 rows=32459 loops=1)
+           Index Cond: (status = 'OPEN'::text)
+           Filter: ((amount >= '100'::numeric) AND (amount <= '100000'::numeric) AND (created_at >= '2024-03-01 00:00:00'::timestamp without time zone) AND (created_at <= '2030-01-01 00:00:00'::timestamp without time zone) AND (note ~~ 'xx%'::text))
+           Rows Removed by Filter: 7541
+           Buffers: shared read=30801
+           I/O Timings: read=2061.783
+   CTE hot_complaints
+     ->  Seq Scan on complaints c  (cost=0.00..32810.00 rows=498300 width=6) (actual time=0.085..831.755 rows=499117 loops=1)
+           Filter: ((severity >= 3) AND (severity <= 5) AND (customer_id >= 1) AND (customer_id <= 1000000) AND (body ~~ 'y%'::text))
+           Rows Removed by Filter: 500883
+           Buffers: shared hit=2 read=10308
+           I/O Timings: read=708.931
+   ->  Nested Loop  (cost=74906.91..1813340.37 rows=200 width=126) (actual time=4525.388..13538.352 rows=500 loops=1)
+         Buffers: shared hit=1997 read=44293 dirtied=4
+         I/O Timings: read=3056.473
+         ->  Subquery Scan on s  (cost=74906.49..1812831.17 rows=200 width=112) (actual time=4523.977..13518.604 rows=500 loops=1)
+               Buffers: shared hit=5 read=44285
+               I/O Timings: read=3052.498
+               ->  GroupAggregate  (cost=74906.49..1812829.17 rows=200 width=44) (actual time=4523.961..13517.019 rows=500 loops=1)
+                     Group Key: oo.customer_id
+                     Buffers: shared hit=5 read=44285
+                     I/O Timings: read=3052.498
+                     ->  Merge Join  (cost=74906.49..1233571.61 rows=77234008 width=20) (actual time=4519.858..9890.146 rows=32436838 loops=1)
+                           Merge Cond: (oo.customer_id = hc.customer_id)
+                           Buffers: shared hit=5 read=44285
+                           I/O Timings: read=3052.498
+                           ->  Sort  (cost=17784.73..17862.23 rows=30999 width=20) (actual time=3239.800..3256.195 rows=32459 loops=1)
+                                 Sort Key: oo.customer_id
+                                 Sort Method: quicksort  Memory: 2290kB
+                                 Buffers: shared hit=3 read=33977
+                                 I/O Timings: read=2343.567
+                                 ->  Hash Join  (cost=14426.00..15472.22 rows=30999 width=20) (actual time=994.780..3217.446 rows=32459 loops=1)
+                                       Hash Cond: (oo.cust_code = cu.name)
+                                       Buffers: shared hit=3 read=33977
+                                       I/O Timings: read=2343.567
+                                       ->  CTE Scan on open_orders oo  (cost=0.00..619.98 rows=30999 width=52) (actual time=418.155..2600.396 rows=32459 loops=1)
+                                             Buffers: shared read=30801
+                                             I/O Timings: read=2061.783
+                                       ->  Hash  (cost=8176.00..8176.00 rows=500000 width=11) (actual time=565.484..565.485 rows=500000 loops=1)
+                                             Buckets: 524288  Batches: 1  Memory Usage: 25472kB
+                                             Buffers: shared read=3176
+                                             I/O Timings: read=281.784
+                                             ->  Seq Scan on customers cu  (cost=0.00..8176.00 rows=500000 width=11) (actual time=0.156..321.163 rows=500000 loops=1)
+                                                   Buffers: shared read=3176
+                                                   I/O Timings: read=281.784
+                           ->  Sort  (cost=57121.76..58367.51 rows=498300 width=4) (actual time=1279.957..3246.327 rows=32436801 loops=1)
+                                 Sort Key: hc.customer_id
+                                 Sort Method: quicksort  Memory: 35685kB
+                                 Buffers: shared hit=2 read=10308
+                                 I/O Timings: read=708.931
+                                 ->  CTE Scan on hot_complaints hc  (cost=0.00..9966.00 rows=498300 width=4) (actual time=0.090..1061.523 rows=499117 loops=1)
+                                       Buffers: shared hit=2 read=10308
+                                       I/O Timings: read=708.931
+         ->  Index Scan using customer_stats_pkey on customer_stats cs  (cost=0.42..2.54 rows=1 width=10) (actual time=0.028..0.028 rows=1 loops=500)
+               Index Cond: (customer_id = s.customer_id)
+               Buffers: shared hit=1992 read=8 dirtied=4
+               I/O Timings: read=3.974
+ Planning:
+   Buffers: shared hit=224 read=35
+   I/O Timings: read=4.820
+ Planning Time: 6.060 ms
+ JIT:
+   Functions: 38
+   Options: Inlining true, Optimization true, Expressions true, Deforming true
+   Timing: Generation 3.766 ms, Inlining 159.585 ms, Optimization 149.104 ms, Emission 108.486 ms, Total 420.941 ms
+ Execution Time: 13590.616 ms
+(70 rows)
+
+ROLLBACK

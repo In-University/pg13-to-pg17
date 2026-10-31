@@ -1,0 +1,40 @@
+Update on products p  (cost=59856.49..60169.03 rows=2518 width=57) (actual time=795.849..795.854 rows=0 loops=1)
+  Buffers: shared hit=36883 dirtied=22 written=22, temp written=2536
+  CTE current_brand_code
+    ->  Hash Join  (cost=667.00..38533.63 rows=947143 width=10) (actual time=5.444..462.606 rows=1000000 loops=1)
+          Hash Cond: (ba.brand_id = b.id)
+          Buffers: shared hit=12859
+          ->  Hash Join  (cost=526.50..35899.81 rows=949038 width=7) (actual time=4.320..326.995 rows=1000000 loops=1)
+                Hash Cond: (ba.store_id = s.id)
+                Buffers: shared hit=12828
+                ->  Seq Scan on brand_assignments ba  (cost=0.00..32739.00 rows=1003333 width=8) (actual time=0.006..145.982 rows=1000000 loops=1)
+                      Filter: is_current
+                      Rows Removed by Filter: 1000000
+                      Buffers: shared hit=12739
+                ->  Hash  (cost=289.00..289.00 rows=19000 width=7) (actual time=4.220..4.222 rows=19000 loops=1)
+                      Buckets: 32768  Batches: 1  Memory Usage: 999kB
+                      Buffers: shared hit=89
+                      ->  Seq Scan on stores s  (cost=0.00..289.00 rows=19000 width=7) (actual time=0.006..1.774 rows=19000 loops=1)
+                            Filter: active
+                            Rows Removed by Filter: 1000
+                            Buffers: shared hit=89
+          ->  Hash  (cost=78.00..78.00 rows=5000 width=11) (actual time=1.088..1.089 rows=5000 loops=1)
+                Buckets: 8192  Batches: 1  Memory Usage: 279kB
+                Buffers: shared hit=28
+                ->  Seq Scan on brands b  (cost=0.00..78.00 rows=5000 width=11) (actual time=0.006..0.412 rows=5000 loops=1)
+                      Buffers: shared hit=28
+  ->  Index Scan using products_status_idx on products p  (cost=21322.85..21635.39 rows=2518 width=57) (actual time=778.085..783.796 rows=2500 loops=1)
+        Index Cond: (status = 'PENDING'::text)
+        Filter: (NOT (hashed SubPlan 2))
+        Rows Removed by Filter: 2500
+        Buffers: shared hit=14343, temp written=2536
+        SubPlan 2
+          ->  CTE Scan on current_brand_code cbc  (cost=0.00..21310.72 rows=4736 width=32) (actual time=5.452..718.764 rows=400000 loops=1)
+                Filter: (region = 'VN'::text)
+                Rows Removed by Filter: 600000
+                Buffers: shared hit=12859, temp written=2536
+Settings: random_page_cost = '1.1'
+Planning:
+  Buffers: shared hit=260
+Planning Time: 0.969 ms
+Execution Time: 797.720 ms

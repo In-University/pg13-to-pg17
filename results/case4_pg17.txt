@@ -1,0 +1,54 @@
+SET
+BEGIN
+SET
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on products p  (cost=38574.76..55951791.09 rows=0 width=0) (actual time=257005.662..257005.675 rows=0 loops=1)
+   Buffers: shared hit=39425 dirtied=1934 written=2, temp read=6348856 written=2537
+   I/O Timings: shared write=0.120, temp read=8624.995 write=66.617
+   CTE current_brand_code
+     ->  Hash Join  (cost=667.00..38574.47 rows=949241 width=10) (actual time=7.226..410.082 rows=1000000 loops=1)
+           Hash Cond: (ba.brand_id = b.id)
+           Buffers: shared hit=12901
+           ->  Hash Join  (cost=526.50..35937.11 rows=950380 width=7) (actual time=5.719..287.396 rows=1000000 loops=1)
+                 Hash Cond: (ba.store_id = s.id)
+                 Buffers: shared hit=12873
+                 ->  Seq Scan on brand_assignments ba  (cost=0.00..32784.00 rows=1000400 width=8) (actual time=0.031..100.479 rows=1000000 loops=1)
+                       Filter: is_current
+                       Rows Removed by Filter: 1000000
+                       Buffers: shared hit=12784
+                 ->  Hash  (cost=289.00..289.00 rows=19000 width=7) (actual time=5.557..5.558 rows=19000 loops=1)
+                       Buckets: 32768  Batches: 1  Memory Usage: 999kB
+                       Buffers: shared hit=89
+                       ->  Seq Scan on stores s  (cost=0.00..289.00 rows=19000 width=7) (actual time=0.022..1.970 rows=19000 loops=1)
+                             Filter: active
+                             Rows Removed by Filter: 1000
+                             Buffers: shared hit=89
+           ->  Hash  (cost=78.00..78.00 rows=5000 width=11) (actual time=1.476..1.476 rows=5000 loops=1)
+                 Buckets: 8192  Batches: 1  Memory Usage: 279kB
+                 Buffers: shared hit=28
+                 ->  Seq Scan on brands b  (cost=0.00..78.00 rows=5000 width=11) (actual time=0.045..0.534 rows=5000 loops=1)
+                       Buffers: shared hit=28
+   ->  Index Scan using products_status_idx on products p  (cost=0.29..55913216.62 rows=2507 width=46) (actual time=963.262..256763.926 rows=2500 loops=1)
+         Index Cond: (status = 'PENDING'::text)
+         Filter: (NOT (ANY (brand_code = (SubPlan 2).col1)))
+         Rows Removed by Filter: 2500
+         Buffers: shared hit=14385 dirtied=1477, temp read=6348856 written=2537
+         I/O Timings: temp read=8624.995 write=66.617
+         SubPlan 2
+           ->  CTE Scan on current_brand_code cbc  (cost=0.00..21357.92 rows=379696 width=32) (actual time=0.004..41.935 rows=200252 loops=5000)
+                 Filter: (region = 'VN'::text)
+                 Rows Removed by Filter: 300378
+                 Buffers: shared hit=12901, temp read=6348856 written=2537
+                 I/O Timings: temp read=8624.995 write=66.617
+ Planning:
+   Buffers: shared hit=321
+ Planning Time: 0.907 ms
+ JIT:
+   Functions: 35
+   Options: Inlining true, Optimization true, Expressions true, Deforming true
+   Timing: Generation 0.871 ms (Deform 0.404 ms), Inlining 75.950 ms, Optimization 91.316 ms, Emission 79.621 ms, Total 247.758 ms
+ Execution Time: 257021.845 ms
+(46 rows)
+
+ROLLBACK

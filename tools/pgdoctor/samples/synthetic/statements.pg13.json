@@ -1,0 +1,6 @@
+{"note": "SYNTHETIC – dữ liệu giả lập để kiểm thử module pg_stat_statements, không phải số đo thật",
+ "statements": [
+  {"queryid": "111", "query": "WITH open_orders AS MATERIALIZED (SELECT customer_id, amount FROM orders WHERE status = $1)\nUPDATE customer_stats cs SET open_amount = s.total FROM (SELECT customer_id, sum(amount) total FROM open_orders GROUP BY 1) s WHERE cs.customer_id = s.customer_id", "calls": 30, "total_exec_time": 3600000, "mean_exec_time": 120000, "rows": 15000, "shared_blks_hit": 900000, "shared_blks_read": 20000, "temp_blks_written": 0},
+  {"queryid": "222", "query": "SELECT * FROM customers WHERE id = $1", "calls": 500000, "total_exec_time": 25000, "mean_exec_time": 0.05, "rows": 500000, "shared_blks_hit": 2000000, "shared_blks_read": 100, "temp_blks_written": 0},
+  {"queryid": "333", "query": "SELECT segment, count(*) FROM customers c JOIN orders o ON o.customer_id = c.id GROUP BY segment", "calls": 100, "total_exec_time": 200000, "mean_exec_time": 2000, "rows": 5000, "shared_blks_hit": 100000, "shared_blks_read": 1000, "temp_blks_written": 0}
+ ]}

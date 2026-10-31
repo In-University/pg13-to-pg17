@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+
+# Logs and local runtime files
+*.log
+.DS_Store

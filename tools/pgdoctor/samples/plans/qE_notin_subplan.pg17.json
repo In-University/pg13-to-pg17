@@ -1,0 +1,155 @@
+[
+  {
+    "Plan": {
+      "Node Type": "ModifyTable",
+      "Operation": "Update",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "products",
+      "Alias": "p",
+      "Startup Cost": 38574.76,
+      "Total Cost": 55951791.09,
+      "Plan Rows": 0,
+      "Plan Width": 0,
+      "Plans": [
+        {
+          "Node Type": "Hash Join",
+          "Parent Relationship": "InitPlan",
+          "Subplan Name": "CTE current_brand_code",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Join Type": "Inner",
+          "Startup Cost": 667.00,
+          "Total Cost": 38574.47,
+          "Plan Rows": 949241,
+          "Plan Width": 10,
+          "Inner Unique": true,
+          "Hash Cond": "(ba.brand_id = b.id)",
+          "Plans": [
+            {
+              "Node Type": "Hash Join",
+              "Parent Relationship": "Outer",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Join Type": "Inner",
+              "Startup Cost": 526.50,
+              "Total Cost": 35937.11,
+              "Plan Rows": 950380,
+              "Plan Width": 7,
+              "Inner Unique": true,
+              "Hash Cond": "(ba.store_id = s.id)",
+              "Plans": [
+                {
+                  "Node Type": "Seq Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Relation Name": "brand_assignments",
+                  "Alias": "ba",
+                  "Startup Cost": 0.00,
+                  "Total Cost": 32784.00,
+                  "Plan Rows": 1000400,
+                  "Plan Width": 8,
+                  "Filter": "is_current"
+                },
+                {
+                  "Node Type": "Hash",
+                  "Parent Relationship": "Inner",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 289.00,
+                  "Total Cost": 289.00,
+                  "Plan Rows": 19000,
+                  "Plan Width": 7,
+                  "Plans": [
+                    {
+                      "Node Type": "Seq Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Relation Name": "stores",
+                      "Alias": "s",
+                      "Startup Cost": 0.00,
+                      "Total Cost": 289.00,
+                      "Plan Rows": 19000,
+                      "Plan Width": 7,
+                      "Filter": "active"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "Node Type": "Hash",
+              "Parent Relationship": "Inner",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 78.00,
+              "Total Cost": 78.00,
+              "Plan Rows": 5000,
+              "Plan Width": 11,
+              "Plans": [
+                {
+                  "Node Type": "Seq Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Relation Name": "brands",
+                  "Alias": "b",
+                  "Startup Cost": 0.00,
+                  "Total Cost": 78.00,
+                  "Plan Rows": 5000,
+                  "Plan Width": 11
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "Node Type": "Index Scan",
+          "Parent Relationship": "Outer",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Scan Direction": "Forward",
+          "Index Name": "products_status_idx",
+          "Relation Name": "products",
+          "Alias": "p",
+          "Startup Cost": 0.29,
+          "Total Cost": 55913216.62,
+          "Plan Rows": 2507,
+          "Plan Width": 46,
+          "Index Cond": "(status = 'PENDING'::text)",
+          "Filter": "(NOT (ANY (brand_code = (SubPlan 2).col1)))",
+          "Plans": [
+            {
+              "Node Type": "CTE Scan",
+              "Parent Relationship": "SubPlan",
+              "Subplan Name": "SubPlan 2",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "CTE Name": "current_brand_code",
+              "Alias": "cbc",
+              "Startup Cost": 0.00,
+              "Total Cost": 21357.92,
+              "Plan Rows": 379696,
+              "Plan Width": 32,
+              "Filter": "(region = 'VN'::text)"
+            }
+          ]
+        }
+      ]
+    },
+    "Settings": {
+      "random_page_cost": "1.1"
+    },
+    "JIT": {
+      "Functions": 34,
+      "Options": {
+        "Inlining": true,
+        "Optimization": true,
+        "Expressions": true,
+        "Deforming": true
+      }
+    }
+  }
+]
