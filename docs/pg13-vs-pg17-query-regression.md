@@ -5,6 +5,20 @@
 >
 > **Cập nhật (rev 2):** phía dự án đã chạy `VACUUM` → `REINDEX` → `ANALYZE` sau upgrade mà query vẫn chậm. Vì vậy giả thuyết "mất thống kê sau `pg_upgrade`" **không còn là nguyên nhân chính** (xem Mục 1: chuyển thành danh sách *xác minh lại*). Trọng tâm mới là: **với stats đầy đủ, vì sao planner/executor của PG17 vẫn chọn plan tệ hơn** (Mục 0, 2, 2.6, 4).
 >
+> **Cập nhật (rev 3, 2026-10-31):** thêm [`solutions.md`](solutions.md), tập trung vào **giải pháp khi chưa build lại được ứng dụng**. Mọi phương án đều đã đo trong lab mới [`lab/remedies/`](../lab/remedies/README.md) (PG 17.11 + pg_hint_plan 1.7.2):
+> - pg_hint_plan hint table `Set(hash_mem_multiplier N)` chỉ cho đúng câu lệnh;
+> - `ALTER ROLE … IN DATABASE … SET`;
+> - flag instance.
+>
+> Các điểm đã xác nhận thêm:
+> - Công thức ngưỡng hash của `NOT IN` khớp **tới từng kB**.
+> - Index, `ANALYZE` lại, `SET STATISTICS 0` đều **không** giúp.
+> - Cloud SQL **không** tự ANALYZE sau upgrade.
+> - Cloud SQL **không hỗ trợ JIT**.
+> - Không có GUC nào tắt được `f7816aec2`.
+>
+> pgdoctor có thêm lệnh `remedy` và rule `PLAN-CTE-COST`.
+>
 > **Độ tin cậy:** các mục có link nguồn là đã đối chiếu; các mục còn lại là kiến thức từ release notes PG14–17 — hãy đối chiếu lại bằng [release notes chính thức](https://www.postgresql.org/docs/17/release-17.html) và bằng `EXPLAIN` thực tế trên hệ thống của bạn trước khi kết luận.
 
 ---
@@ -20,7 +34,7 @@
 | 2 | **Ước lượng vẫn sai dù đã ANALYZE** (tương quan cột, skew, điều kiện trên expression/CTE đã aggregate) mà PG13 "may mắn" chọn đúng; PG17 (cost/estimation mới) chọn Nested Loop trên `CTE Scan`/`Materialize` | **Cao** | `rows=` vs `actual rows=` lệch ≥100×; `loops` rất lớn ở inner side |
 | 3 | **Memoize** chọn sai do `n_distinct` ước lượng sai → cache miss, tốn CPU/RAM | Trung bình | `SET enable_memoize = off;` |
 | 4 | **Chênh lệch cấu hình** sau upgrade (flag Cloud SQL, `work_mem`, `hash_mem_multiplier` 1.0→2.0 mặc định PG15, `random_page_cost`, `jit`, parallel…) | Trung bình | Diff `pg_settings` hai bản (Mục 3) |
-| 5 | **JIT** kích hoạt do cost lớn | Thấp–TB | `SET jit = off;` |
+| 5 | **JIT** kích hoạt do cost lớn | Thấp (**không áp dụng trên Cloud SQL**: Cloud SQL không hỗ trợ LLVM JIT, [features](https://docs.cloud.google.com/sql/docs/postgres/features)) | `SELECT pg_jit_available();` |
 | 6 | **Không phải plan, mà là chờ/IO**: lock wait, autovacuum chặn, WAL/disk throttle, HA/replica sync, trigger/FK, checkpoint | Trung bình (hay bị bỏ sót với UPDATE dài) | `pg_stat_activity.wait_event`, `pg_stat_io` (PG16+), thời gian trigger trong `EXPLAIN ANALYZE` (Mục 2.6, 4.2) |
 | 7 | Regression riêng của PG17 (B-tree `IN (...)`/SAOP, …) | Thấp | `enable_group_by_reordering=off`, so plan index scan |
 | 8 | Thứ nghi vấn khác: sample `ANALYZE` khác nhau làm plan "lật" ở biên, extension chưa update, hàm user-defined (volatility/COST/ROWS/parallel safety) | Thấp | Tăng stats target; `ALTER EXTENSION … UPDATE`; xem Mục 2.6 |
@@ -167,6 +181,8 @@ Hai commit này **không** được backport về PG16 trở xuống. Mục đí
 - Planner chỉ chọn hashed nếu **ước lượng** `rows × (width + ~24 byte)` ≤ `work_mem × hash_mem_multiplier` (PG13: ×1.0, PG17: ×2.0 — đã kiểm tra trên container). Lúc chạy, bảng băm vẫn có thể lớn hơn mức đó; quyết định chỉ dựa trên **ước lượng**.
 - Vì vậy nếu PG17 ước lượng subquery **lớn hơn** PG13 (do stats propagate, hoặc do join estimate thay đổi), câu `NOT IN` có thể rơi từ hashed sang tuyến tính → chậm hàng trăm lần **dù stats đầy đủ**.
 - Nhận diện trong `EXPLAIN`: PG13 `Filter: (NOT (hashed SubPlan 2))`; PG17 `Filter: (NOT (ANY (brand_code = (hashed SubPlan 2).col1)))` là tốt; **không có chữ `hashed`** là xấu.
+- **(rev 3) Công thức chính xác** (`subplan_is_hashable()` trong `subselect.c`, giống hệt nhau ở REL_13, REL_17, REL_18): `plan_rows × (MAXALIGN(plan_width) + MAXALIGN(SizeofHeapTupleHeader)) ≤ get_hash_memory_limit()`, với `MAXALIGN(23) = 24`. Lab E1 đo được: PG17 `work_mem = 10381kB` → SubPlan, `10382kB` → hashed (tính ra 379 670 × 56 / 2 / 1024 = 10381.6). Subquery tương quan thì không bao giờ được hash.
+- **(rev 3) Tương lai:** nhánh PG19 thay công thức bằng `EstimateSubplanHashTableSpace()` (commit `1ea5bdb00`), ước lượng bảng băm lớn hơn nên planner **ít** hash hơn. Nhánh này cũng thêm tính năng tự chuyển `NOT IN` → anti-join (commit `383eb21eb`), nhưng chỉ khi chứng minh được hai vế không NULL.
 
 #### 2.6.4 Nguyên nhân KHÔNG thuộc về plan (UPDATE chạy lâu vì *chờ*)
 | Nguyên nhân | Dấu hiệu | Kiểm tra |
@@ -181,7 +197,11 @@ Nếu `wait_event` gần như luôn NULL (đang dùng CPU) suốt 2 giờ → g�
 
 #### 2.6.5 Nguồn cần lưu ý
 - [boringSQL – Good CTE, bad CTE](https://boringsql.com/posts/good-cte-bad-cte/): tổng hợp hành vi CTE qua các phiên bản (PG17+: "Materialized (better stats)"), khuyên dùng bảng tạm + index + ANALYZE cho kết quả trung gian lớn.
-- Bài Microsoft "When PostgreSQL v17 Chooses the Wrong Plan: A Deep Dive into CTEs with Data Skew" có tiêu đề **khớp đúng** cơ chế trên nhưng **tôi không đọc được nội dung** (trang chỉ trả về tiêu đề) → chưa kiểm chứng, không trích dẫn chi tiết.
+- Bài Microsoft ["When PostgreSQL v17 Chooses the Wrong Plan: A Deep Dive into CTEs with Data Skew"](https://techcommunity.microsoft.com/blog/adforpostgresql/when-postgresql-v17-chooses-the-wrong-plan-a-deep-dive-into-ctes-with-data-skew/4515705) có tiêu đề **khớp đúng** cơ chế trên, nhưng trang render bằng JavaScript nên vẫn chưa đọc được toàn văn. Đoạn trích của công cụ tìm kiếm (**chưa kiểm chứng**) cho biết:
+  - một CTE materialized trên dữ liệu lệch khiến PG17 ước lượng lớn rồi chọn hash join;
+  - các cách sửa được nêu là `LIMIT` trong CTE, rewrite bằng LATERAL + `OFFSET 0`, và `SET enable_hashjoin = off` cho session.
+- (rev 3) pgsql-hackers, ["v17 vs v16 performance comparison"](https://www.postgresql.org/message-id/4e14cc4f-edaf-0820-2bdf-db8dd0a9efab%40gmail.com): TPC-DS q95 chậm hơn ~2× ở PG17, bisect chỉ ra `f7816aec2`. Tom Lane: "I'm not terribly concerned about that". Nghĩa là **sẽ không có bản vá** đưa hành vi về như PG16.
+- (rev 3) pgsql-performance, [12.15 → 17.2](https://www.postgresql.org/message-id/43ed5a72fdfdd44fa046d8911c496364a3eb9231.camel@cybertec.at): 250 ms → 377 s; tăng `work_mem` lên 256MB là sửa được. Triệu chứng giống dự án.
 
 ---
 
@@ -251,6 +271,14 @@ Bật/tắt từng công tắc **sau khi đã ANALYZE** và ghi lại cái nào 
 ---
 
 ## 5. Cách xử lý / giảm thiểu
+
+> **(rev 3)** Phần giải pháp chi tiết, ưu tiên **không sửa code**, đã đo từng phương án: [`solutions.md`](solutions.md). Tóm tắt:
+> 1. hint table pg_hint_plan `Set(hash_mem_multiplier N)` cho đúng câu lệnh;
+> 2. `ALTER ROLE <role batch> IN DATABASE <db> SET hash_mem_multiplier = N` rồi recycle pool;
+> 3. flag instance;
+> 4. sửa code thành `NOT EXISTS`.
+>
+> Dùng `pgdoctor remedy` để tính N và sinh SQL.
 
 ### 5.1 Ngay lập tức
 1. **Xác minh** stats đã đủ theo Mục 1.5 (dự án đã ANALYZE; bước này chỉ để loại trừ chắc chắn, không còn là cách sửa chính).
@@ -438,4 +466,9 @@ Plan giống nhau (Hash Join), nhưng cho thấy công thức thu nhỏ `n_disti
 - [GitLab: Upgrading external PostgreSQL databases (ANALYZE bắt buộc sau major upgrade)](https://docs.gitlab.com/administration/postgresql/external_upgrade)
 - [CloudNativePG: PostgreSQL upgrades](https://cloudnative-pg.io/documentation/current/postgres_upgrades)
 - Release notes PG [14](https://www.postgresql.org/docs/14/release-14.html), [15](https://www.postgresql.org/docs/15/release-15.html), [16](https://www.postgresql.org/docs/16/release-16.html) — đối chiếu các mục ở Mục 2.
-- Tài liệu Google Cloud SQL "Upgrade the database major version in-place" — nên đọc để xác nhận Cloud SQL có tự chạy `ANALYZE` hay không (tôi chưa xác nhận được từ nguồn Google trong lần tra cứu này).
+- [Google Cloud SQL – Upgrade the database major version in-place](https://docs.cloud.google.com/sql/docs/postgres/upgrade-major-db-version-inplace) (rev 3, đã đọc):
+  - Cloud SQL dùng `pg_upgrade`.
+  - "Run `ANALYZE` on your primary instance…" là bước **thủ công**; Cloud SQL **không** tự chạy.
+  - Cloud SQL tự tạo hai "upgrade backups". Rollback = restore backup trước upgrade sang một **instance mới** PG13.
+- [Cloud SQL extensions](https://docs.cloud.google.com/sql/docs/postgres/extensions) (pg_hint_plan cho PG17 qua `cloudsql.enable_pg_hint_plan`, cần restart; auto_explain), [Cloud SQL flags](https://docs.cloud.google.com/sql/docs/postgres/flags) (work_mem 4 MB, hash_mem_multiplier mặc định 2, không cần restart), [Cloud SQL unsupported features](https://docs.cloud.google.com/sql/docs/postgres/features) (LLVM JIT).
+- [pg_hint_plan hint table (PG17, theo query_id)](https://github.com/ossc-db/pg_hint_plan/blob/PG17/docs/hint_table.md), [`subplan_is_hashable()` REL_17](https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/optimizer/plan/subselect.c), [Tom Lane: hashed subplan và O(N²)](https://postgresql.org/message-id/6343.1491401090%40sss.pgh.pa.us).

@@ -1,0 +1,15 @@
+ version: 17.11 (Debian 17.11-1.pgdg13+2), hash_mem_multiplier=2
+ 4MB -> hashed SubPlan
+ 8MB -> hashed SubPlan
+ 10381kB -> hashed SubPlan
+ 10382kB -> hashed SubPlan
+ 11MB -> hashed SubPlan
+ 16MB -> hashed SubPlan
+ version: 13.23 (Debian 13.23-1.pgdg13+1), hash_mem_multiplier=1
+ 64kB -> SubPlan (linear)
+ 256kB -> SubPlan (linear)
+ 257kB -> SubPlan (linear)
+ 258kB -> hashed SubPlan
+ 259kB -> hashed SubPlan
+ 1MB -> hashed SubPlan
+ 4MB -> hashed SubPlan

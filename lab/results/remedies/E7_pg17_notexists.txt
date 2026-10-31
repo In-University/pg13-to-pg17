@@ -1,0 +1,67 @@
+Timing is on.
+BEGIN
+Time: 0.970 ms
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on public.products p  (cost=69817.63..75413.46 rows=0 width=0) (actual time=4394.705..4394.725 rows=0 loops=1)
+   Buffers: shared hit=39384 dirtied=22 written=22, temp read=2602 written=5138
+   CTE current_brand_code
+     ->  Hash Join  (cost=667.00..38524.00 rows=949176 width=10) (actual time=22.093..2639.587 rows=1000000 loops=1)
+           Output: b.code, s.region
+           Inner Unique: true
+           Hash Cond: (ba.brand_id = b.id)
+           Buffers: shared hit=12856
+           ->  Hash Join  (cost=526.50..35889.31 rows=949366 width=7) (actual time=18.071..1791.644 rows=1000000 loops=1)
+                 Output: ba.brand_id, s.region
+                 Inner Unique: true
+                 Hash Cond: (ba.store_id = s.id)
+                 Buffers: shared hit=12828
+                 ->  Seq Scan on public.brand_assignments ba  (cost=0.00..32739.00 rows=999333 width=8) (actual time=0.048..807.925 rows=1000000 loops=1)
+                       Output: ba.id, ba.store_id, ba.brand_id, ba.is_current, ba.valid_from
+                       Filter: ba.is_current
+                       Rows Removed by Filter: 1000000
+                       Buffers: shared hit=12739
+                 ->  Hash  (cost=289.00..289.00 rows=19000 width=7) (actual time=17.738..17.741 rows=19000 loops=1)
+                       Output: s.region, s.id
+                       Buckets: 32768  Batches: 1  Memory Usage: 999kB
+                       Buffers: shared hit=89
+                       ->  Seq Scan on public.stores s  (cost=0.00..289.00 rows=19000 width=7) (actual time=0.031..9.025 rows=19000 loops=1)
+                             Output: s.region, s.id
+                             Filter: s.active
+                             Rows Removed by Filter: 1000
+                             Buffers: shared hit=89
+           ->  Hash  (cost=78.00..78.00 rows=5000 width=11) (actual time=3.934..3.935 rows=5000 loops=1)
+                 Output: b.code, b.id
+                 Buckets: 8192  Batches: 1  Memory Usage: 279kB
+                 Buffers: shared hit=28
+                 ->  Seq Scan on public.brands b  (cost=0.00..78.00 rows=5000 width=11) (actual time=0.037..1.807 rows=5000 loops=1)
+                       Output: b.code, b.id
+                       Buffers: shared hit=28
+   ->  Hash Anti Join  (cost=31293.63..36889.46 rows=3036 width=102) (actual time=4221.525..4335.445 rows=2500 loops=1)
+         Output: 'ORPHAN'::text, now(), p.ctid, cbc.*
+         Hash Cond: (p.brand_code = cbc.brand_code)
+         Buffers: shared hit=14340, temp read=2602 written=5138
+         ->  Index Scan using products_status_idx on public.products p  (cost=0.29..294.02 rows=5060 width=13) (actual time=0.093..28.079 rows=5000 loops=1)
+               Output: p.ctid, p.brand_code
+               Index Cond: (p.status = 'PENDING'::text)
+               Buffers: shared hit=1484
+         ->  Hash  (cost=21356.46..21356.46 rows=379670 width=88) (actual time=4220.297..4220.298 rows=400000 loops=1)
+               Output: cbc.*, cbc.brand_code
+               Buckets: 65536  Batches: 8  Memory Usage: 3971kB
+               Buffers: shared hit=12856, temp written=5107
+               ->  CTE Scan on current_brand_code cbc  (cost=0.00..21356.46 rows=379670 width=88) (actual time=22.194..3888.232 rows=400000 loops=1)
+                     Output: cbc.*, cbc.brand_code
+                     Filter: (cbc.region = 'VN'::text)
+                     Rows Removed by Filter: 600000
+                     Buffers: shared hit=12856, temp written=2536
+ Settings: effective_cache_size = '1GB', random_page_cost = '1.1'
+ Query Identifier: 6835135090326929662
+ Planning:
+   Buffers: shared hit=269
+ Planning Time: 2.797 ms
+ Execution Time: 4403.914 ms
+(57 rows)
+
+Time: 4414.443 ms (00:04.414)
+ROLLBACK
+Time: 0.461 ms

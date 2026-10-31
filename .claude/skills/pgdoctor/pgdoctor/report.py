@@ -117,6 +117,30 @@ def _finding_card(f: Finding, anchor: str = "") -> str:
             f'{"<ul class=ev>" + ev + "</ul>" if ev else ""}{why}{act}{diag}{ref_html}</div></details>')
 
 
+def _remedy_card(i: int, r) -> str:
+    if not r.effective:
+        tag, cls = "Không hiệu quả", "info"
+    elif r.code_change:
+        tag, cls = "Cần sửa code", "medium"
+    else:
+        tag, cls = "Không sửa code", "low"
+    meta = f"Phạm vi: {r.blast}" + (" · cần restart instance" if r.restart else "")
+    parts = [f'<details class="card {cls}"><summary><span class="sev {cls}">{E(tag)}</span>'
+             f'<span><b>{i}. {E(r.title)}</b></span><span class="subj">{E(meta)}</span></summary><div class="body">']
+    if r.target_desc:
+        parts.append(f'<div class="why"><b>Áp dụng cho</b><span class="mono">{E(r.target_desc)}</span></div>')
+    parts.append(f'<div class="why"><b>Vì sao</b>{E(r.why)}</div>')
+    if r.lab:
+        parts.append(f'<div class="act"><b>Đo trong lab</b>{E(r.lab)}</div>')
+    if r.caveats:
+        parts.append('<div class="act"><b>Lưu ý</b><ul class="ev">' + "".join(f"<li>{E(c)}</li>" for c in r.caveats) + "</ul></div>")
+    for lbl, lines in (("Các bước", r.steps), ("Kiểm tra", r.verify), ("Hoàn tác", r.rollback)):
+        if lines:
+            parts.append(f'<div class="act"><b>{lbl}</b><pre>{E(chr(10).join(lines))}</pre></div>')
+    parts.append("</div></details>")
+    return "".join(parts)
+
+
 def _tree(plan: Plan, prefix: str, other_prefix: str, mapping: Dict[int, int], flagged: set,
           diverge: Optional[int], title: str) -> str:
     rt = plan.runtime_ms or 0
@@ -174,6 +198,8 @@ def render(ctx: Dict[str, Any]) -> str:
         nav.append("<a href='#settings'>Cấu hình</a>")
     if ctx.get("statements_rows") is not None:
         nav.append("<a href='#statements'>pg_stat_statements</a>")
+    if any(q.get("remedies") for q in ctx["queries"]):
+        nav.insert(2, "<a href='#remedies'>Khắc phục</a>")
     nav.append("<a href='#kb'>Knowledge base</a>")
     out.append("<nav>" + "".join(nav) + "</nav><main>")
 
@@ -217,6 +243,16 @@ def render(ctx: Dict[str, Any]) -> str:
     if not findings:
         out.append("<p class='muted'>Không có finding nào.</p>")
     out.append("</div>")
+
+    # --------------------------------------------------------------- remedies
+    rq = [q for q in ctx["queries"] if q.get("remedies")]
+    if rq:
+        out.append("<h2 id='remedies'>Khắc phục <span class='muted' style='font-size:13px'>ưu tiên phương án KHÔNG sửa code, "
+                   "phạm vi hẹp nhất trước – mỗi phương án là một lựa chọn thay thế</span></h2>")
+        for q in rq:
+            out.append(f"<h3>{E(q['name'])}</h3>")
+            for i, r in enumerate(q["remedies"], 1):
+                out.append(_remedy_card(i, r))
 
     # ------------------------------------------------------------------ plans
     if ctx["queries"]:

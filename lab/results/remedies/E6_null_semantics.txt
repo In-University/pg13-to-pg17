@@ -1,0 +1,7 @@
+ x | notin_s | notexists_s | notin_s_has_null | notexists_s_has_null | nullsafe_s_has_null | notin_empty | nullsafe_empty 
+---+---------+-------------+------------------+----------------------+---------------------+-------------+----------------
+ A | f       | f           | f                | f                    | f                   | t           | t
+ B | t       | t           |                  | t                    | f                   | t           | t
+   |         | t           |                  | t                    | f                   | t           | t
+(3 rows)
+

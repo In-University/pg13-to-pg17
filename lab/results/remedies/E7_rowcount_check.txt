@@ -1,0 +1,4 @@
+-- số dòng bị UPDATE (đếm bằng RETURNING trong transaction rồi ROLLBACK)
+ q4.sql  |  2500
+ q4_notexists.sql |  2500
+ q4_notexists_nullsafe.sql |  2500

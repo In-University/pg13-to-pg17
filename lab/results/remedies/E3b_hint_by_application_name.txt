@@ -1,0 +1,4 @@
+-- session application_name=batch-job:
+         Filter: (NOT (ANY (brand_code = (hashed SubPlan 2).col1)))
+-- cùng role, application_name=web-api:
+         Filter: (NOT (ANY (brand_code = (SubPlan 2).col1)))

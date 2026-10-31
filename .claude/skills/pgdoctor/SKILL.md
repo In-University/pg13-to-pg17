@@ -1,6 +1,6 @@
 ---
 name: pgdoctor
-description: Diagnose PostgreSQL queries that got slower after a major-version upgrade (13 → 17, Cloud SQL in-place upgrade / pg_upgrade). Use when the user provides EXPLAIN plans of the same query from the old and new server, asks why a query regressed after upgrading, wants to compare pg_settings / statistics / pg_stat_statements between two servers, or wants a pre-upgrade risk check. Detects offline: lost hashed SubPlan (NOT IN), Nested Loop re-scanning a CTE, missing stats after pg_upgrade, PG17 CTE column-statistics side effects, ANALYZE failing under PG17's safe search_path.
+description: Diagnose PostgreSQL queries that got slower after a major-version upgrade (13 → 17, Cloud SQL in-place upgrade / pg_upgrade). Use when the user provides EXPLAIN plans of the same query from the old and new server, asks why a query regressed after upgrading, wants to compare pg_settings / statistics / pg_stat_statements between two servers, or wants a pre-upgrade risk check. Detects offline: lost hashed SubPlan (NOT IN), Nested Loop re-scanning a CTE, missing stats after pg_upgrade, PG17 CTE column-statistics side effects, ANALYZE failing under PG17's safe search_path. Generates a remediation runbook that needs no application change (pg_hint_plan hint table, ALTER ROLE … IN DATABASE … SET, Cloud SQL flags) with the exact work_mem / hash_mem_multiplier threshold.
 ---
 
 # pgdoctor
@@ -33,10 +33,19 @@ Offline analyzer (Python ≥ 3.8, standard library only). It reads files: EXPLAI
    - Single files work too: `--old-plan/--new-plan`, `--old-settings/--new-settings`, `--old-health/--new-health`, `--old-statements/--new-statements`.
    - `--fail-on high` exits with code 2 when a finding of that severity or higher exists (for CI).
    - `python <skill>/pgdoctor_cli.py kb` lists all rules.
-4. **Interpret the findings:**
+4. **Get fixes that need no code change** (the app often cannot be rebuilt quickly):
+   ```bash
+   python <skill>/pgdoctor_cli.py remedy --plan q.pg17.json [--old-plan q.pg13.json] \
+          --app-role <role> --app-db <db> [--app-name <application_name>] [--keyword <text>] -o fix.sql
+   ```
+   - Options are ordered narrowest first: hint table (one statement, key = `query_id`) → `ALTER ROLE … IN DATABASE … SET` → instance flag → code change (`NOT EXISTS`).
+   - For a non-hashed `NOT IN` SubPlan it computes the exact minimum: `rows × (MAXALIGN(width) + 24) ≤ work_mem × hash_mem_multiplier` (matches the lab to the kB) and recommends 2× that.
+   - `analyze --remedies fix.sql` writes the same runbook for every query; the HTML report has a *Khắc phục* section.
+   - If the plan has no `EXPLAIN (SETTINGS)`, pass the real session values with `--work-mem` / `--hash-mem-multiplier`.
+5. **Interpret the findings:**
    - Start with `critical`/`high` findings of scope `compare`, then plan findings with `side = new`.
    - Findings on the old plan are context only; the tool caps them at `low`.
-5. **Verify before concluding.** Each rule ships a diagnostic such as `BEGIN; SET LOCAL ...; EXPLAIN ...; ROLLBACK;`. Ask the user to run it. All rules are heuristics.
+6. **Verify before concluding.** Each rule ships a diagnostic such as `BEGIN; SET LOCAL ...; EXPLAIN ...; ROLLBACK;`. Ask the user to run it. All rules are heuristics.
 
 ## Key patterns (reproduced in this repo's lab)
 
@@ -46,7 +55,14 @@ Offline analyzer (Python ≥ 3.8, standard library only). It reads files: EXPLAI
 | `CMP-CTE-CORRELATION` | `CTE Scan … rows=1` with several filters on CTE columns, but actual rows in the thousands. Caused by PG17 borrowing base-table column stats (commit f7816aec2) | `NOT MATERIALIZED`, or a temp table followed by `ANALYZE`. `CREATE STATISTICS` does **not** help |
 | `CMP-NOSTATS`, `HEALTH-NEVER-ANALYZED` | `reltuples = -1`; every predicate uses the default selectivity 0.005 | `vacuumdb --all --analyze-in-stages` |
 | `HEALTH-SEARCHPATH-FUNC` | A function used by an expression index or materialized view has no pinned `search_path`. On PG17, `ANALYZE` of that table fails | `ALTER FUNCTION … SET search_path = …` |
+| `PLAN-CTE-COST` | "SELECT from the CTE is slow": splits CTE body time (runs once) from re-reading the stored result (`loops` ≫ 1) | Re-reads dominate → fix the SubPlan / Nested Loop, indexes on the CTE body do not help |
 | `PLAN-NL-RESCAN`, `PLAN-NL-BET` | The inner side of a Nested Loop has no index and is re-run thousands of times (or the outer side is estimated at about 1 row) | Fix the estimate at the node where the misestimate starts (`PLAN-MISEST`) |
+
+## Remedies verified in `lab/remedies` (PG 17.11 + pg_hint_plan 1.7.2)
+
+- Hint table `Set(hash_mem_multiplier N)` / `Set(work_mem …)` keyed by `query_id`: plan-time only, can be limited to one `application_name`. `CREATE EXTENSION pg_hint_plan` must run with `pg_hint_plan.enable_hint_table = off`. Literal vs bind-parameter versions of a statement have different `query_id`s: take it from `pg_stat_activity.query_id` / `pg_stat_statements.queryid`.
+- `ALTER ROLE … IN DATABASE … SET` beats `ALTER ROLE` beats `ALTER DATABASE`; client `options -c` beats all. New sessions only (recycle the pool).
+- Not effective: indexes, re-ANALYZE, `SET STATISTICS 0` (old stats stay), `CREATE STATISTICS`, reverting app code. Cloud SQL has no LLVM JIT.
 
 ## Limits
 

@@ -1,0 +1,72 @@
+Timing is on.
+BEGIN
+Time: 1.030 ms
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on public.products p  (cost=60610.72..60716.72 rows=2546 width=113) (actual time=6006.153..6006.203 rows=0 loops=1)
+   Buffers: shared hit=36892 dirtied=2072 written=22, temp read=2430 written=4976
+   CTE current_brand_code
+     ->  Hash Join  (cost=667.00..38499.09 rows=943423 width=10) (actual time=24.772..2680.654 rows=1000000 loops=1)
+           Output: b.code, s.region
+           Inner Unique: true
+           Hash Cond: (ba.brand_id = b.id)
+           Buffers: shared hit=12859
+           ->  Hash Join  (cost=526.50..35876.53 rows=944744 width=7) (actual time=19.818..1833.474 rows=1000000 loops=1)
+                 Output: ba.brand_id, s.region
+                 Inner Unique: true
+                 Hash Cond: (ba.store_id = s.id)
+                 Buffers: shared hit=12828
+                 ->  Seq Scan on public.brand_assignments ba  (cost=0.00..32739.00 rows=994467 width=8) (actual time=0.047..850.353 rows=1000000 loops=1)
+                       Output: ba.id, ba.store_id, ba.brand_id, ba.is_current, ba.valid_from
+                       Filter: ba.is_current
+                       Rows Removed by Filter: 1000000
+                       Buffers: shared hit=12739
+                 ->  Hash  (cost=289.00..289.00 rows=19000 width=7) (actual time=19.463..19.472 rows=19000 loops=1)
+                       Output: s.region, s.id
+                       Buckets: 32768  Batches: 1  Memory Usage: 999kB
+                       Buffers: shared hit=89
+                       ->  Seq Scan on public.stores s  (cost=0.00..289.00 rows=19000 width=7) (actual time=0.020..9.789 rows=19000 loops=1)
+                             Output: s.region, s.id
+                             Filter: s.active
+                             Rows Removed by Filter: 1000
+                             Buffers: shared hit=89
+           ->  Hash  (cost=78.00..78.00 rows=5000 width=11) (actual time=4.750..4.751 rows=5000 loops=1)
+                 Output: b.code, b.id
+                 Buckets: 8192  Batches: 1  Memory Usage: 279kB
+                 Buffers: shared hit=28
+                 ->  Seq Scan on public.brands b  (cost=0.00..78.00 rows=5000 width=11) (actual time=0.021..2.212 rows=5000 loops=1)
+                       Output: b.code, b.id
+                       Buffers: shared hit=28
+   ->  Merge Anti Join  (cost=22111.63..22217.63 rows=2546 width=113) (actual time=5897.837..5904.677 rows=2500 loops=1)
+         Output: p.id, p.brand_code, 'ORPHAN'::text, now(), p.ctid, cbc.*
+         Merge Cond: (p.brand_code = cbc.brand_code)
+         Buffers: shared hit=14348 dirtied=1478, temp read=2430 written=4976
+         ->  Sort  (cost=596.79..609.52 rows=5091 width=17) (actual time=72.975..78.987 rows=5000 loops=1)
+               Output: p.id, p.brand_code, p.ctid
+               Sort Key: p.brand_code
+               Sort Method: quicksort  Memory: 581kB
+               Buffers: shared hit=1489 dirtied=1478
+               ->  Index Scan using products_status_idx on public.products p  (cost=0.29..283.34 rows=5091 width=17) (actual time=0.166..38.222 rows=5000 loops=1)
+                     Output: p.id, p.brand_code, p.ctid
+                     Index Cond: (p.status = 'PENDING'::text)
+                     Buffers: shared hit=1484 dirtied=1478
+         ->  Sort  (cost=21514.84..21526.63 rows=4717 width=88) (actual time=5469.769..5685.156 rows=400000 loops=1)
+               Output: cbc.*, cbc.brand_code
+               Sort Key: cbc.brand_code
+               Sort Method: external merge  Disk: 19440kB
+               Buffers: shared hit=12859, temp read=2430 written=4976
+               ->  CTE Scan on current_brand_code cbc  (cost=0.00..21227.02 rows=4717 width=88) (actual time=25.387..3874.557 rows=400000 loops=1)
+                     Output: cbc.*, cbc.brand_code
+                     Filter: (cbc.region = 'VN'::text)
+                     Rows Removed by Filter: 600000
+                     Buffers: shared hit=12859, temp written=2536
+ Settings: effective_cache_size = '1GB', random_page_cost = '1.1'
+ Planning:
+   Buffers: shared hit=208
+ Planning Time: 2.550 ms
+ Execution Time: 6023.123 ms
+(62 rows)
+
+Time: 6033.236 ms (00:06.033)
+ROLLBACK
+Time: 1.045 ms

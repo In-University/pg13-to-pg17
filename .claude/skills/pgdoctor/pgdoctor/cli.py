@@ -2,6 +2,7 @@
 
     python -m pgdoctor analyze --old-plan q1.pg13.json --new-plan q1.pg17.json -o report.html
     python -m pgdoctor analyze --plans-dir plans/ --old-dir out/pg13 --new-dir out/pg17 -o report.html
+    python -m pgdoctor remedy --plan q1.pg17.json --app-role batch_user --app-db appdb -o fix.sql
     python -m pgdoctor kb
 """
 from __future__ import annotations
@@ -18,7 +19,8 @@ from .compare import compare_plans
 from .findings import SEV_RANK, SEVERITIES, Finding, fmt_ms, sort_findings
 from .health import analyze_health, compare_health, load_health
 from .kb import RULES
-from .plan import Plan, load_plan
+from .plan import Plan, load_plan, major_from_label
+from .remedy import RemedyContext, remedies_for_query, render_runbook
 from .report import render
 from .rules_plan import analyze_plan
 from .settings import compare_settings, load_settings
@@ -90,8 +92,10 @@ def run_analyze(args) -> int:
         try:
             if po:
                 old = load_plan(po); inputs.append(po)
+                old.major_hint = old.major_hint or major_from_label(args.old_label)
             if pn:
                 new = load_plan(pn); inputs.append(pn)
+                new.major_hint = new.major_hint or major_from_label(args.new_label)
         except Exception as ex:  # keep going with other queries
             findings.append(Finding("CMP-DIVERGE", "info", "compare", name, f"Không đọc được plan: {ex}"))
             continue
@@ -109,7 +113,8 @@ def run_analyze(args) -> int:
             for f in qf:
                 if f.side == "old" and f.scope == "plan" and SEV_RANK[f.severity] < SEV_RANK["low"]:
                     f.severity = "low"
-        queries.append({"id": str(i), "name": name, "old": old, "new": new, "cmp": cmp_, "findings": qf})
+        rem = remedies_for_query(name, old, new, qf, _remedy_ctx(args)) if new else []
+        queries.append({"id": str(i), "name": name, "old": old, "new": new, "cmp": cmp_, "findings": qf, "remedies": rem})
         findings += qf
 
     settings_table = None
@@ -150,6 +155,9 @@ def run_analyze(args) -> int:
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:
             json.dump([f.to_dict() for f in findings], fh, ensure_ascii=False, indent=2)
+    if args.remedies:
+        with open(args.remedies, "w", encoding="utf-8") as fh:
+            fh.write(render_runbook([{"name": q["name"], "remedies": q["remedies"]} for q in queries], _remedy_ctx(args)))
     _print_summary(findings, queries, args)
     if args.fail_on:
         lim = SEV_RANK[args.fail_on]
@@ -176,8 +184,66 @@ def _print_summary(findings: List[Finding], queries, args) -> None:
     for f in findings[: args.top]:
         side = {"old": args.old_label, "new": args.new_label, "both": "cmp"}.get(f.side or "", "")
         print(f"  - {f.severity.upper():8} {f.rule:24} {f.subject[:24]:24} {side:5} {f.message}")
+    for q in queries:
+        eff = [r for r in q.get("remedies", []) if r.effective]
+        if eff:
+            print(f"  Khắc phục [{q['name']}] (thứ tự ưu tiên):")
+            for r in eff[:4]:
+                print(f"    {r.rank}. {'[sửa code] ' if r.code_change else '[không sửa code] '}{r.title} – phạm vi: {r.blast}")
     if args.output:
         print(f"Report: {os.path.abspath(args.output)}")
+    if getattr(args, "remedies", None):
+        print(f"Runbook SQL: {os.path.abspath(args.remedies)}")
+
+
+def _remedy_ctx(args) -> RemedyContext:
+    return RemedyContext(app_role=args.app_role, app_db=args.app_db, app_name=args.app_name, target=args.target,
+                         instance=args.instance, keyword=args.keyword)
+
+
+def _add_remedy_args(p) -> None:
+    g = p.add_argument_group("khắc phục (remedy)")
+    g.add_argument("--app-role", default="<app_role>", help="Role mà ứng dụng/job batch đăng nhập")
+    g.add_argument("--app-db", default="<db>", help="Database của ứng dụng")
+    g.add_argument("--app-name", default="", help="application_name của job (để hint chỉ áp dụng cho job đó)")
+    g.add_argument("--target", choices=("cloudsql", "selfhosted"), default="cloudsql")
+    g.add_argument("--instance", default="<INSTANCE>", help="Tên instance Cloud SQL (cho lệnh gcloud)")
+    g.add_argument("--keyword", default="", help="Đoạn text để tìm câu lệnh trong pg_stat_statements")
+
+
+def run_remedy(args) -> int:
+    """Offline: plan(s) of one slow statement -> SQL runbook of fixes, no-code-change options first."""
+    new = load_plan(args.plan)
+    new.major_hint = new.major_hint or major_from_label(args.new_label)
+    old = None
+    if args.old_plan:
+        old = load_plan(args.old_plan)
+        old.major_hint = old.major_hint or major_from_label(args.old_label)
+    name = args.name or os.path.basename(args.plan)
+    fs = analyze_plan(new, "new", name)
+    if old:
+        fs += compare_plans(old, new, name).findings
+    if args.work_mem or args.hash_mem_multiplier:
+        sett = dict(new.settings)
+        if args.work_mem:
+            sett["work_mem"] = args.work_mem
+        if args.hash_mem_multiplier:
+            sett["hash_mem_multiplier"] = str(args.hash_mem_multiplier)
+        new.meta["Settings"] = sett
+    rem = remedies_for_query(name, old, new, fs, _remedy_ctx(args))
+    text = render_runbook([{"name": name, "remedies": rem}], _remedy_ctx(args))
+    if not rem:
+        text += "-- Không có finding nào ở mức medium trở lên trên plan này cần khắc phục.\n"
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        print(f"Runbook SQL: {os.path.abspath(args.output)}")
+        for r in rem:
+            if r.effective:
+                print(f"  {r.rank}. {'[sửa code] ' if r.code_change else '[không sửa code] '}{r.title} – phạm vi: {r.blast}")
+    else:
+        sys.stdout.write(text)
+    return 0
 
 
 def run_kb(_args) -> int:
@@ -209,7 +275,19 @@ def main(argv=None) -> int:
     a.add_argument("--json", help="Ghi findings ra file JSON")
     a.add_argument("--top", type=int, default=15, help="Số finding in ra console")
     a.add_argument("--fail-on", choices=SEVERITIES, help="Exit code 2 nếu có finding từ mức này trở lên (dùng cho CI)")
+    a.add_argument("--remedies", help="Ghi runbook SQL các phương án khắc phục (ưu tiên không sửa code) ra file")
+    _add_remedy_args(a)
     a.set_defaults(func=run_analyze)
+    r = sub.add_parser("remedy", help="Sinh runbook SQL khắc phục cho 1 câu lệnh (ưu tiên không sửa code)")
+    r.add_argument("--plan", required=True, help="Plan trên bản MỚI (EXPLAIN là đủ, không cần ANALYZE)")
+    r.add_argument("--old-plan", help="Plan trên bản cũ (tuỳ chọn, để so sánh)")
+    r.add_argument("--name")
+    r.add_argument("--old-label", default="PG13"), r.add_argument("--new-label", default="PG17")
+    r.add_argument("--work-mem", help="work_mem thực tế của session ứng dụng nếu plan không có EXPLAIN SETTINGS (vd. 4MB)")
+    r.add_argument("--hash-mem-multiplier", type=float, help="hash_mem_multiplier thực tế (Cloud SQL mặc định 2)")
+    r.add_argument("-o", "--output", help="Ghi runbook ra file (mặc định in ra stdout)")
+    _add_remedy_args(r)
+    r.set_defaults(func=run_remedy)
     k = sub.add_parser("kb", help="Liệt kê các rule/pattern")
     k.set_defaults(func=run_kb)
     args = ap.parse_args(argv)

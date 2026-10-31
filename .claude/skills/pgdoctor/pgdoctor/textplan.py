@@ -238,6 +238,9 @@ def parse_text_plan(text: str) -> Dict[str, Any]:
             triggers.append({"Trigger Name": name, "Constraint Name": cm.group(1) if cm else None,
                              "Time": float(m.group("t")), "Calls": int(m.group("c"))})
             continue
+        m = re.match(r"^Query Identifier:\s*(-?\d+)", stripped)
+        if m and top:  # EXPLAIN (VERBOSE) on PG14+ with compute_query_id: key of pg_stat_statements / pg_hint_plan hint table
+            meta["Query Identifier"] = int(m.group(1)); section = None; continue
         if stripped.startswith("Settings:") and top:
             sett = {}
             for k, v in re.findall(r"(\w+)\s*=\s*'([^']*)'", stripped):

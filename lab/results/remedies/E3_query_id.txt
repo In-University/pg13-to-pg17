@@ -1,0 +1,13 @@
+query_id (literal 'VN') = 8512646466599369567
+query_id (tham số $1, như JDBC/prepared) = 8959202264040175023
+      query_id       | application_name |        hints         
+---------------------+------------------+----------------------
+ 8512646466599369567 |                  | Set(work_mem "16MB")
+(1 row)
+
+-- work_mem lúc THỰC THI vẫn là 4MB (Set() chỉ áp dụng khi lập plan):
+ work_mem_at_execution 
+-----------------------
+ 4MB
+(1 row)
+

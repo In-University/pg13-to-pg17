@@ -203,6 +203,60 @@
     "score": 48.43792724609375
   },
   {
+    "rule": "PLAN-CTE-COST",
+    "severity": "high",
+    "scope": "plan",
+    "subject": "case4",
+    "message": "CTE current_brand_code: thân CTE chỉ tốn 410.1 ms, nhưng kết quả bị quét lại 5000 lần (+3.5 min, 81% tổng) → chậm do QUÉT LẠI, không phải do join bên trong CTE",
+    "evidence": [
+      "Thân CTE (chạy 1 lần): 410.1 ms (0% tổng), 1.00M dòng",
+      "1 CTE Scan, tổng 5000 lần quét, thời gian gộp 3.5 min",
+      "Đọc lại kết quả đã lưu: ≈ 3.5 min (81% tổng)",
+      "CTE Scan nặng nhất: CTE Scan on current_brand_code cbc – 5000 loop × ~200.3k dòng, ngữ cảnh SubPlan 2",
+      "Sửa chỗ khiến CTE bị quét lại (SubPlan không hash / Nested Loop), không phải thêm index cho thân CTE"
+    ],
+    "side": "new",
+    "node_ids": [
+      1,
+      9
+    ],
+    "old_node_ids": [],
+    "data": {
+      "cte": "current_brand_code",
+      "body_ms": 410.082,
+      "reread_ms": 209264.918,
+      "scan_loops": 5000.0
+    },
+    "score": 8.14191175073076
+  },
+  {
+    "rule": "PLAN-CTE-COST",
+    "severity": "high",
+    "scope": "plan",
+    "subject": "case3",
+    "message": "CTE open_orders: thân CTE chỉ tốn 12.4 ms, nhưng kết quả bị quét lại 10.0k lần (+15.00 s, 73% tổng) → chậm do QUÉT LẠI, không phải do join bên trong CTE",
+    "evidence": [
+      "Thân CTE (chạy 1 lần): 12.4 ms (0% tổng), 10.0k dòng",
+      "2 CTE Scan, tổng 10.0k lần quét, thời gian gộp 15.02 s",
+      "Đọc lại kết quả đã lưu: ≈ 15.00 s (73% tổng)",
+      "CTE Scan nặng nhất: CTE Scan on open_orders b – 10.0k loop × ~10.0k dòng, ngữ cảnh main",
+      "Sửa chỗ khiến CTE bị quét lại (SubPlan không hash / Nested Loop), không phải thêm index cho thân CTE"
+    ],
+    "side": "new",
+    "node_ids": [
+      1,
+      11
+    ],
+    "old_node_ids": [],
+    "data": {
+      "cte": "open_orders",
+      "body_ms": 12.433,
+      "reread_ms": 15004.304999999998,
+      "scan_loops": 10001.0
+    },
+    "score": 7.274469603332263
+  },
+  {
     "rule": "CMP-EST-SHIFT",
     "severity": "high",
     "scope": "compare",
@@ -245,7 +299,7 @@
     ],
     "old_node_ids": [],
     "data": {},
-    "score": 5.591785605194457
+    "score": 5.591785605194456
   },
   {
     "rule": "CMP-EST-SHIFT",
@@ -364,6 +418,33 @@
     "old_node_ids": [],
     "data": {},
     "score": 0.8157866892598176
+  },
+  {
+    "rule": "PLAN-CTE-COST",
+    "severity": "medium",
+    "scope": "plan",
+    "subject": "case1",
+    "message": "CTE per_customer: thân CTE chiếm 17.74 s (100% tổng) → nếu chậm, tối ưu join/scan bên trong CTE",
+    "evidence": [
+      "Thân CTE (chạy 1 lần): 17.74 s (100% tổng), 500 dòng",
+      "1 CTE Scan, tổng 1 lần quét, thời gian gộp 17.74 s",
+      "Đọc + lọc kết quả CTE (1 lần): ≈ 0.6 ms (0% tổng)",
+      "CTE Scan nặng nhất: CTE Scan on per_customer p – 1 loop × ~500 dòng, ngữ cảnh main",
+      "So plan của thân CTE giữa hai bản (join order/method, index, ước lượng) – có thể chạy riêng SELECT của CTE"
+    ],
+    "side": "new",
+    "node_ids": [
+      2,
+      8
+    ],
+    "old_node_ids": [],
+    "data": {
+      "cte": "per_customer",
+      "body_ms": 17741.149,
+      "reread_ms": 0.565999999998894,
+      "scan_loops": 1.0
+    },
+    "score": 9.98553822983633
   },
   {
     "rule": "CMP-JOIN-METHOD",
@@ -625,6 +706,87 @@
     ],
     "data": {},
     "score": 0
+  },
+  {
+    "rule": "PLAN-CTE-COST",
+    "severity": "low",
+    "scope": "plan",
+    "subject": "case1",
+    "message": "CTE per_customer: thân CTE chiếm 25.63 s (100% tổng) → nếu chậm, tối ưu join/scan bên trong CTE",
+    "evidence": [
+      "Thân CTE (chạy 1 lần): 25.63 s (100% tổng), 500 dòng",
+      "1 CTE Scan, tổng 1 lần quét, thời gian gộp 25.63 s",
+      "Đọc + lọc kết quả CTE (1 lần): ≈ 0.2 ms (0% tổng)",
+      "CTE Scan nặng nhất: CTE Scan on per_customer p – 1 loop × ~500 dòng, ngữ cảnh main",
+      "So plan của thân CTE giữa hai bản (join order/method, index, ước lượng) – có thể chạy riêng SELECT của CTE"
+    ],
+    "side": "old",
+    "node_ids": [
+      2,
+      8
+    ],
+    "old_node_ids": [],
+    "data": {
+      "cte": "per_customer",
+      "body_ms": 25630.106,
+      "reread_ms": 0.21700000000055297,
+      "scan_loops": 1.0
+    },
+    "score": 9.990492894500832
+  },
+  {
+    "rule": "PLAN-CTE-COST",
+    "severity": "low",
+    "scope": "plan",
+    "subject": "case4",
+    "message": "CTE current_brand_code: thân CTE chiếm 542.8 ms (57% tổng) → nếu chậm, tối ưu join/scan bên trong CTE",
+    "evidence": [
+      "Thân CTE (chạy 1 lần): 542.8 ms (57% tổng), 1.00M dòng",
+      "1 CTE Scan, tổng 1 lần quét, thời gian gộp 854.1 ms",
+      "Đọc + lọc kết quả CTE (1 lần): ≈ 311.3 ms (33% tổng)",
+      "CTE Scan nặng nhất: CTE Scan on current_brand_code cbc – 1 loop × ~400.0k dòng, ngữ cảnh SubPlan 2",
+      "So plan của thân CTE giữa hai bản (join order/method, index, ước lượng) – có thể chạy riêng SELECT của CTE"
+    ],
+    "side": "old",
+    "node_ids": [
+      1,
+      9
+    ],
+    "old_node_ids": [],
+    "data": {
+      "cte": "current_brand_code",
+      "body_ms": 542.755,
+      "reread_ms": 311.33799999999997,
+      "scan_loops": 1.0
+    },
+    "score": 5.707034913798542
+  },
+  {
+    "rule": "PLAN-CTE-COST",
+    "severity": "low",
+    "scope": "plan",
+    "subject": "case3",
+    "message": "CTE open_orders: thân CTE chiếm 195.8 ms (35% tổng) → nếu chậm, tối ưu join/scan bên trong CTE",
+    "evidence": [
+      "Thân CTE (chạy 1 lần): 195.8 ms (35% tổng), 10.0k dòng",
+      "2 CTE Scan, tổng 2 lần quét, thời gian gộp 212.9 ms",
+      "Đọc lại kết quả đã lưu: ≈ 17.1 ms (3% tổng)",
+      "CTE Scan nặng nhất: CTE Scan on open_orders a – 1 loop × ~10.0k dòng, ngữ cảnh main",
+      "So plan của thân CTE giữa hai bản (join order/method, index, ước lượng) – có thể chạy riêng SELECT của CTE"
+    ],
+    "side": "old",
+    "node_ids": [
+      1,
+      8
+    ],
+    "old_node_ids": [],
+    "data": {
+      "cte": "open_orders",
+      "body_ms": 195.823,
+      "reread_ms": 17.11500000000001,
+      "scan_loops": 2.0
+    },
+    "score": 3.457314769368752
   },
   {
     "rule": "PLAN-MISEST",

@@ -1,0 +1,40 @@
+BEGIN
+ ?column? | attname | n_distinct | most_common_vals 
+----------+---------+------------+------------------
+ trước    | region  |          3 | {ID,VN,TH}
+(1 row)
+
+ALTER TABLE
+ANALYZE
+            ?column?            | attname | n_distinct | most_common_vals 
+--------------------------------+---------+------------+------------------
+ sau SET STATISTICS 0 + ANALYZE | region  |          3 | {ID,VN,TH}
+(1 row)
+
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ Update on products p  (cost=38524.30..56472099.88 rows=0 width=0)
+   CTE current_brand_code
+     ->  Hash Join  (cost=667.00..38524.00 rows=949176 width=10)
+           Hash Cond: (ba.brand_id = b.id)
+           ->  Hash Join  (cost=526.50..35889.31 rows=949366 width=7)
+                 Hash Cond: (ba.store_id = s.id)
+                 ->  Seq Scan on brand_assignments ba  (cost=0.00..32739.00 rows=999333 width=8)
+                       Filter: is_current
+                 ->  Hash  (cost=289.00..289.00 rows=19000 width=7)
+                       ->  Seq Scan on stores s  (cost=0.00..289.00 rows=19000 width=7)
+                             Filter: active
+           ->  Hash  (cost=78.00..78.00 rows=5000 width=11)
+                 ->  Seq Scan on brands b  (cost=0.00..78.00 rows=5000 width=11)
+   ->  Index Scan using products_status_idx on products p  (cost=0.29..56433575.87 rows=2530 width=46)
+         Index Cond: (status = 'PENDING'::text)
+         Filter: (NOT (ANY (brand_code = (SubPlan 2).col1)))
+         SubPlan 2
+           ->  CTE Scan on current_brand_code cbc  (cost=0.00..21356.46 rows=379670 width=32)
+                 Filter: (region = 'VN'::text)
+ JIT:
+   Functions: 34
+   Options: Inlining true, Optimization true, Expressions true, Deforming true
+(22 rows)
+
+ROLLBACK

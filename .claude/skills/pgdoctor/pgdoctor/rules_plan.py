@@ -321,6 +321,48 @@ def analyze_plan(plan: Plan, side: str, qname: str) -> List[Finding]:
             add("PLAN-CTE-RESCAN", "high" if share >= 0.2 else "medium",
                 f"{n.describe()} bị quét {fmt_num(n.loops)} lần ({fmt_ms(n.total_time_incl)})", [n], score=share)
 
+    # ------------------------------------------------ CTE COST BREAKDOWN
+    # "SELECT from current_brand_code is very slow": is it the CTE BODY (the multi-table join, computed once) or the
+    # CTE SCAN re-reading the stored result again and again (SubPlan without hash, Nested Loop inner side)?
+    # The first CTE Scan that pulls rows also runs the body, so: re-read time ~= sum(CTE Scan incl. time) - body time.
+    rt = plan.runtime_ms
+    if A and rt:
+        for root in plan.nodes:
+            sn = root.subplan_name or ""
+            if not sn.startswith("CTE ") or root.never_executed:
+                continue
+            cname = sn[4:]
+            scans = [x for x in plan.nodes if x.node_type == "CTE Scan" and x.cte_name == cname and not x.never_executed]
+            body = root.total_time_incl or 0.0
+            scan_ms = sum(x.total_time_incl or 0.0 for x in scans)
+            if not scans or (body <= 0 and scan_ms <= 0):
+                continue
+            loops = sum(x.loops for x in scans)
+            reread = max(scan_ms - body, 0.0)
+            sb, sr = min(body / rt, 1.0), min(reread / rt, 1.0)
+            if sb + sr < 0.2:
+                continue
+            hot = max(scans, key=lambda x: x.total_time_incl or 0.0)
+            ev = [f"Thân CTE (chạy 1 lần): {fmt_ms(body)} ({_pct(sb)} tổng), {fmt_num(root.actual_rows_total)} dòng",
+                  f"{len(scans)} CTE Scan, tổng {fmt_num(loops)} lần quét, thời gian gộp {fmt_ms(scan_ms)}",
+                  f"Đọc lại kết quả đã lưu: ≈ {fmt_ms(reread)} ({_pct(sr)} tổng)",
+                  f"CTE Scan nặng nhất: {hot.describe()} – {fmt_num(hot.loops)} loop × ~{fmt_num(hot.actual_rows)} dòng, "
+                  f"ngữ cảnh {_ctx(hot)}"]
+            if sr >= sb and loops > 1:
+                sev = "high" if sr >= 0.5 else "medium"
+                msg = (f"CTE {cname}: thân CTE chỉ tốn {fmt_ms(body)}, nhưng kết quả bị quét lại {fmt_num(loops)} lần "
+                       f"(+{fmt_ms(reread)}, {_pct(sr)} tổng) → chậm do QUÉT LẠI, không phải do join bên trong CTE")
+                ev.append("Sửa chỗ khiến CTE bị quét lại (SubPlan không hash / Nested Loop), không phải thêm index cho thân CTE")
+            else:
+                # a body that dominates a short statement is not a problem worth more than "low"
+                sev = "medium" if sb >= 0.5 and body >= 10_000 else "low"
+                if loops <= 1:
+                    ev[2] = f"Đọc + lọc kết quả CTE (1 lần): ≈ {fmt_ms(reread)} ({_pct(sr)} tổng)"
+                msg = f"CTE {cname}: thân CTE chiếm {fmt_ms(body)} ({_pct(sb)} tổng) → nếu chậm, tối ưu join/scan bên trong CTE"
+                ev.append("So plan của thân CTE giữa hai bản (join order/method, index, ước lượng) – có thể chạy riêng SELECT của CTE")
+            add("PLAN-CTE-COST", sev, msg, [root, hot], ev, score=max(sb, sr) * 10,
+                data={"cte": cname, "body_ms": body, "reread_ms": reread, "scan_loops": loops})
+
     # -------------------------------------------------- NOSTATS SIGNATURE
     for n in plan.nodes:
         if A and n.node_type == "Seq Scan" and not n.get("Filter") and n.loops == 1 and (n.actual_rows or 0) >= 1000:
@@ -387,11 +429,25 @@ def _mb(b: Optional[float]) -> str:
     return f"{b / 1024 ** 2:.1f}MB" if b >= 1024 ** 2 else f"{b / 1024:.0f}kB"
 
 
+DEFAULT_WORK_MEM = 4 * 1024 ** 2          # PostgreSQL default, also Cloud SQL default flag value (4MB, every tier)
+HEAP_TUPLE_HEADER = 24                    # MAXALIGN(SizeofHeapTupleHeader = 23)
+
+
+def default_hash_mem_multiplier(major: Optional[int]) -> float:
+    """hash_mem_multiplier default: 1.0 on PG13/14, 2.0 from PG15 (commit 8f388f6f5)."""
+    return 2.0 if (major or 17) >= 15 else 1.0
+
+
 def subplan_info(plan: Plan, sp: Node) -> dict:
-    """Is this SubPlan hashed? Is it an ANY / NOT IN style sublink? Approximate hash table size vs limit.
+    """Is this SubPlan hashed? Is it an ANY / NOT IN style sublink? Hash table size vs limit, and the minimum
+    work_mem / hash_mem_multiplier that makes the planner hash it again.
 
     PG13 prints  'NOT (hashed SubPlan 2)'      / 'NOT (SubPlan 2)'
     PG17 prints  'NOT (ANY (x = (hashed SubPlan 2).col1))' / 'NOT (ANY (x = (SubPlan 2).col1))'
+
+    Planner rule (subselect.c subplan_is_hashable, identical in PG13..PG18):
+        plan_rows * (MAXALIGN(plan_width) + MAXALIGN(SizeofHeapTupleHeader)) <= work_mem * hash_mem_multiplier
+    and the sublink must be uncorrelated (no outer parameters).  Verified to the kB in the lab (E1).
     """
     name = sp.subplan_name or ""
     hashed_re = re.compile(r"hashed\s+" + re.escape(name) + r"\b")
@@ -408,12 +464,47 @@ def subplan_info(plan: Plan, sp: Node) -> dict:
     any_type = hashed or bool(re.search(r"ANY\s*\(", expr)) or bool(
         re.search(r"NOT\s*\(\s*" + re.escape(name), expr)) or bool(re.search(r"\(\s*" + re.escape(name) + r"\s*\)", expr))
     width = float(sp.get("Plan Width") or 0)
-    hash_bytes = sp.plan_rows * (((width + 7) // 8) * 8 + 24)
+    entry = ((int(width) + 7) // 8) * 8 + HEAP_TUPLE_HEADER
+    hash_bytes = sp.plan_rows * entry
     sett = plan.settings or {}
     wm = _parse_mem(sett.get("work_mem"))
     hm = float(sett["hash_mem_multiplier"]) if sett.get("hash_mem_multiplier") else None
-    limit = wm * (hm or 1.0) if wm else None
-    return {"hashed": hashed, "any_type": any_type, "expr": expr, "hash_bytes": hash_bytes, "limit_bytes": limit}
+    wm_eff = wm or DEFAULT_WORK_MEM
+    hm_eff = hm or default_hash_mem_multiplier(plan.major)
+    limit = wm * (hm or 1.0) if wm else None      # only when EXPLAIN SETTINGS printed work_mem
+    limit_eff = wm_eff * hm_eff
+    return {"hashed": hashed, "any_type": any_type, "expr": expr, "hash_bytes": hash_bytes, "limit_bytes": limit,
+            "rows": sp.plan_rows, "width": width, "entry_bytes": entry,
+            "work_mem_bytes": wm_eff, "hash_mem_multiplier": hm_eff, "assumed_defaults": wm is None or hm is None,
+            "limit_eff_bytes": limit_eff,
+            "min_work_mem_kb": int(math.ceil(hash_bytes / (1024 * hm_eff))),
+            "min_hash_mem_multiplier": hash_bytes / wm_eff,
+            "correlated": subplan_correlated(sp)}
+
+
+_QUAL_RE = re.compile(r"(?<![\w.)])([a-z_][\w$]*)\.(?:[a-z_][\w$]*|\"[^\"]+\")", re.I)
+_COND_KEYS = ("Filter", "Index Cond", "Recheck Cond", "Join Filter", "Hash Cond", "Merge Cond", "One-Time Filter",
+              "TID Cond", "Cache Key")
+
+
+def subplan_correlated(sp: Node) -> bool:
+    """Heuristic: does the SubPlan reference columns of the outer query (correlated -> can never be hashed)?
+
+    PG13 prints outer references as $n params; PG17 prints the outer column itself (alias.col) inside the subplan."""
+    inside = {x.alias for x in sp.walk() if x.alias} | {x.relation for x in sp.walk() if x.relation} | \
+             {x.cte_name for x in sp.walk() if x.cte_name}
+    for x in sp.walk():
+        for k in _COND_KEYS:
+            v = x.get(k)
+            for t in (v if isinstance(v, list) else [v]):
+                if not isinstance(t, str):
+                    continue
+                if re.search(r"(?<![\w)])\$\d+", t):
+                    return True
+                for alias in _QUAL_RE.findall(re.sub(r"'(?:[^']|'')*'", "''", t)):
+                    if alias not in inside and alias.lower() not in ("pg_catalog", "public"):
+                        return True
+    return False
 
 
 def _merge_inner(n: Node) -> bool:

@@ -1,0 +1,39 @@
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
+ Update on public.products p  (cost=38524.30..60052173.68 rows=0 width=0)
+   CTE current_brand_code
+     ->  Hash Join  (cost=667.00..38524.00 rows=949176 width=10)
+           Output: b.code, s.region
+           Inner Unique: true
+           Hash Cond: (ba.brand_id = b.id)
+           ->  Hash Join  (cost=526.50..35889.31 rows=949366 width=7)
+                 Output: ba.brand_id, s.region
+                 Inner Unique: true
+                 Hash Cond: (ba.store_id = s.id)
+                 ->  Seq Scan on public.brand_assignments ba  (cost=0.00..32739.00 rows=999333 width=8)
+                       Output: ba.id, ba.store_id, ba.brand_id, ba.is_current, ba.valid_from
+                       Filter: ba.is_current
+                 ->  Hash  (cost=289.00..289.00 rows=19000 width=7)
+                       Output: s.region, s.id
+                       ->  Seq Scan on public.stores s  (cost=0.00..289.00 rows=19000 width=7)
+                             Output: s.region, s.id
+                             Filter: s.active
+           ->  Hash  (cost=78.00..78.00 rows=5000 width=11)
+                 Output: b.code, b.id
+                 ->  Seq Scan on public.brands b  (cost=0.00..78.00 rows=5000 width=11)
+                       Output: b.code, b.id
+   ->  Index Scan using products_status_idx on public.products p  (cost=0.29..60013649.68 rows=2690 width=46)
+         Output: 'ORPHAN'::text, now(), p.ctid
+         Index Cond: (p.status = 'PENDING'::text)
+         Filter: (NOT (ANY (p.brand_code = (SubPlan 2).col1)))
+         SubPlan 2
+           ->  CTE Scan on current_brand_code cbc  (cost=0.00..21356.46 rows=379670 width=32)
+                 Output: cbc.brand_code
+                 Filter: (cbc.region = 'VN'::text)
+ Settings: effective_cache_size = '1GB', random_page_cost = '1.1'
+ Query Identifier: 8512646466599369567
+ JIT:
+   Functions: 34
+   Options: Inlining true, Optimization true, Expressions true, Deforming true
+(35 rows)
+

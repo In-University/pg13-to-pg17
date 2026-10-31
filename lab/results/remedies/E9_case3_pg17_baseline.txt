@@ -1,0 +1,60 @@
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on public.customer_stats2 cs  (cost=11117.44..11119.70 rows=0 width=0) (actual time=100114.356..100114.384 rows=0 loops=1)
+   Buffers: shared hit=19131 dirtied=12 written=5, temp read=444 written=446
+   CTE open_orders
+     ->  Index Scan using orders2_status_idx on public.orders2  (cost=0.43..486.66 rows=10533 width=39) (actual time=0.104..99.190 rows=10000 loops=1)
+           Output: orders2.id, orders2.customer_id, orders2.cust_code, orders2.amount, orders2.priority, orders2.created_at
+           Index Cond: (orders2.status = 'OPEN'::text)
+           Buffers: shared hit=10010
+   ->  Nested Loop  (cost=10630.78..10633.04 rows=1 width=122) (actual time=99900.732..100094.603 rows=500 loops=1)
+         Output: s.n, s.total, now(), cs.ctid, s.*
+         Inner Unique: true
+         Buffers: shared hit=15189 dirtied=4, temp read=444 written=446
+         ->  Subquery Scan on s  (cost=10630.36..10630.40 rows=1 width=112) (actual time=99900.463..100088.748 rows=500 loops=1)
+               Output: s.n, s.total, s.*, s.customer_id
+               Buffers: shared hit=13189, temp read=444 written=446
+               ->  GroupAggregate  (cost=10630.36..10630.39 rows=1 width=44) (actual time=99900.329..100087.943 rows=500 loops=1)
+                     Output: a.customer_id, count(*), sum(a.amount)
+                     Group Key: a.customer_id
+                     Buffers: shared hit=13189, temp read=444 written=446
+                     ->  Sort  (cost=10630.36..10630.37 rows=1 width=20) (actual time=99899.952..99958.123 rows=190000 loops=1)
+                           Output: a.customer_id, a.amount
+                           Sort Key: a.customer_id
+                           Sort Method: external merge  Disk: 3552kB
+                           Buffers: shared hit=13189, temp read=444 written=446
+                           ->  Nested Loop  (cost=289.67..10630.35 rows=1 width=20) (actual time=128.327..99609.448 rows=190000 loops=1)
+                                 Output: a.customer_id, a.amount
+                                 Join Filter: ((b.id <> a.id) AND (a.customer_id = b.customer_id))
+                                 Rows Removed by Join Filter: 99810000
+                                 Buffers: shared hit=13186
+                                 ->  Hash Join  (cost=289.67..10340.68 rows=1 width=28) (actual time=127.314..572.331 rows=10000 loops=1)
+                                       Output: a.customer_id, a.amount, a.id
+                                       Hash Cond: (cu.name = a.cust_code)
+                                       Buffers: shared hit=13186
+                                       ->  Seq Scan on public.customers2 cu  (cost=0.00..8176.00 rows=500000 width=11) (actual time=0.034..134.557 rows=500000 loops=1)
+                                             Output: cu.id, cu.name, cu.segment
+                                             Buffers: shared hit=3176
+                                       ->  Hash  (cost=289.66..289.66 rows=1 width=60) (actual time=127.221..127.226 rows=10000 loops=1)
+                                             Output: a.customer_id, a.amount, a.id, a.cust_code
+                                             Buckets: 16384 (originally 1024)  Batches: 1 (originally 1)  Memory Usage: 761kB
+                                             Buffers: shared hit=10010
+                                             ->  CTE Scan on open_orders a  (cost=0.00..289.66 rows=1 width=60) (actual time=0.111..118.060 rows=10000 loops=1)
+                                                   Output: a.customer_id, a.amount, a.id, a.cust_code
+                                                   Filter: ((a.priority >= 8) AND (a.created_at >= '2026-10-01 00:00:00'::timestamp without time zone) AND (a.amount >= '900'::numeric))
+                                                   Buffers: shared hit=10010
+                                 ->  CTE Scan on open_orders b  (cost=0.00..289.66 rows=1 width=12) (actual time=0.002..6.983 rows=10000 loops=10000)
+                                       Output: b.id, b.customer_id, b.cust_code, b.amount, b.priority, b.created_at
+                                       Filter: ((b.priority >= 8) AND (b.created_at >= '2026-10-01 00:00:00'::timestamp without time zone) AND (b.amount >= '900'::numeric))
+         ->  Index Scan using customer_stats2_pkey on public.customer_stats2 cs  (cost=0.42..2.64 rows=1 width=10) (actual time=0.009..0.009 rows=1 loops=500)
+               Output: cs.ctid, cs.customer_id
+               Index Cond: (cs.customer_id = s.customer_id)
+               Buffers: shared hit=2000 dirtied=4
+ Settings: effective_cache_size = '1GB', random_page_cost = '1.1'
+ Query Identifier: -161937511574997545
+ Planning:
+   Buffers: shared hit=226
+ Planning Time: 2.672 ms
+ Execution Time: 100116.746 ms
+(56 rows)
+

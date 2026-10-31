@@ -34,6 +34,17 @@ REF = {
     "notin_wiki": ("PostgreSQL wiki – Don't Do This: NOT IN", "https://wiki.postgresql.org/wiki/Don%27t_Do_This#Don.27t_use_NOT_IN"),
     "subquery": ("Subquery expressions (NOT IN và NULL)", "https://www.postgresql.org/docs/17/functions-subquery.html"),
     "collation": ("Collation versions", "https://www.postgresql.org/docs/17/sql-altercollation.html"),
+    # --- added in rev 3 (research agents + lab/remedies) ---
+    "cloudsql_ext": ("Cloud SQL: supported extensions (pg_hint_plan, auto_explain)", "https://docs.cloud.google.com/sql/docs/postgres/extensions"),
+    "cloudsql_flags": ("Cloud SQL: database flags (work_mem 4MB, hash_mem_multiplier 2, pg_hint_plan.*)", "https://docs.cloud.google.com/sql/docs/postgres/flags"),
+    "cloudsql_features": ("Cloud SQL: unsupported features (LLVM JIT)", "https://docs.cloud.google.com/sql/docs/postgres/features"),
+    "hint_table": ("pg_hint_plan 1.7 (PG17): hint table theo query_id", "https://github.com/ossc-db/pg_hint_plan/blob/PG17/docs/hint_table.md"),
+    "alter_role": ("ALTER ROLE … IN DATABASE … SET (thứ tự ưu tiên)", "https://www.postgresql.org/docs/17/sql-alterrole.html"),
+    "subselect_src": ("subplan_is_hashable() – subselect.c (REL_17_STABLE)", "https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/optimizer/plan/subselect.c"),
+    "tom_notin": ("Tom Lane: hashed subplan vs không – O(N²) khi bảng băm ước lượng vượt work_mem", "https://postgresql.org/message-id/6343.1491401090%40sss.pgh.pa.us"),
+    "perf_12_17": ("pgsql-performance: 12.15 → 17.2, 250 ms → 377 s, work_mem 256MB sửa được", "https://www.postgresql.org/message-id/43ed5a72fdfdd44fa046d8911c496364a3eb9231.camel@cybertec.at"),
+    "q95": ("pgsql-hackers: TPC-DS q95 chậm 2× ở PG17 do f7816aec2 (không sửa)", "https://www.postgresql.org/message-id/4e14cc4f-edaf-0820-2bdf-db8dd0a9efab%40gmail.com"),
+    "memoize_reg": ("pgsql-hackers: Memoize regression (costing giả định khoá phân bố đều)", "https://www.postgresql.org/message-id/CAApHDvpBd%2BGb43wmZ94qnKLEEmT0h-S6No4mA2%2BYiqs-%3D0yQHQ%40mail.gmail.com"),
 }
 
 
@@ -71,6 +82,15 @@ _R: List[Rule] = [
          ["BEGIN; SET LOCAL enable_nestloop = off; EXPLAIN (ANALYZE, BUFFERS) ...; ROLLBACK;",
           "CREATE TEMP TABLE tmp AS <cte query>; CREATE INDEX ON tmp(<join key>); ANALYZE tmp;"],
          ["cte_thread", "explain"]),
+    Rule("PLAN-CTE-COST", "Thời gian của CTE: thân CTE hay quét lại kết quả CTE", "plan",
+         "Khi thấy 'CTE Scan on current_brand_code' rất lâu, có hai khả năng khác hẳn nhau: (a) THÂN CTE (join nhiều bảng) "
+         "chạy chậm – chỉ chạy 1 lần; (b) kết quả CTE đã lưu bị QUÉT LẠI hàng nghìn lần (SubPlan NOT IN không hash, Nested Loop "
+         "có CTE Scan ở inner). Thời gian gộp của CTE Scan bao gồm cả lần chạy thân CTE, nên rule tách: đọc lại ≈ tổng thời "
+         "gian CTE Scan − thời gian thân CTE. Trong lab CASE 4, thân CTE ~1–2 s nhưng phần đọc lại chiếm gần hết thời gian.",
+         "(b) → sửa nguyên nhân quét lại (xem PLAN-SUBPLAN-NOHASH / PLAN-NL-RESCAN và phần Khắc phục); thêm index cho bảng "
+         "trong thân CTE KHÔNG giúp. (a) → so plan của riêng SELECT trong CTE giữa PG13/PG17 (join order, Memoize, index).",
+         ["EXPLAIN (ANALYZE, BUFFERS) <SELECT trong thân CTE>;  -- chạy riêng thân CTE trên cả hai bản"],
+         ["explain", "cte_stats_pganalyze"]),
     Rule("PLAN-NL-BET", "Nested Loop dựa trên ước lượng outer ≈ 1 dòng (rủi ro)", "plan",
          "Planner chỉ chọn Nested Loop với inner không có index khi tin rằng outer side rất nhỏ (thường rows=1). "
          "Nếu ước lượng này sai, thời gian tăng theo cấp số nhân. Rule này hoạt động cả khi chỉ có EXPLAIN (không ANALYZE).",
@@ -97,7 +117,7 @@ _R: List[Rule] = [
          "So sánh với SET enable_memoize = off. Nếu tốt hơn rõ rệt: sửa ước lượng n_distinct của khoá (ALTER TABLE ... "
          "ALTER COLUMN ... SET (n_distinct = ...)) hoặc tắt memoize cho session/role tạm thời.",
          ["BEGIN; SET LOCAL enable_memoize = off; EXPLAIN (ANALYZE, BUFFERS) ...; ROLLBACK;"],
-         ["memoize", "pg14_rel"], since="14"),
+         ["memoize", "memoize_reg", "pg14_rel"], since="14"),
     Rule("PLAN-SPILL", "Tràn bộ nhớ ra đĩa (Hash batches / Sort / HashAgg)", "plan",
          "Hash join chia nhiều batch, sort external merge, HashAggregate ghi đĩa: thời gian tăng mạnh. Batches tăng so "
          "với 'originally' cho thấy planner ước lượng thiếu số dòng. Mặc định hash_mem_multiplier đổi 1.0 → 2.0 ở PG15.",
@@ -107,8 +127,10 @@ _R: List[Rule] = [
     Rule("PLAN-JIT", "JIT chiếm thời gian đáng kể", "plan",
          "JIT kích hoạt khi tổng cost vượt jit_above_cost (mặc định 100000). Ước lượng sai làm cost phồng → JIT compile "
          "(inlining/optimization) tốn hàng giây đến hàng chục giây mà không đem lại lợi ích.",
-         "Đo lại với SET jit = off. Nếu tốt hơn: tắt jit theo role/database hoặc tăng jit_above_cost/jit_optimize_above_cost.",
-         ["BEGIN; SET LOCAL jit = off; EXPLAIN (ANALYZE) ...; ROLLBACK;"], ["jit"]),
+         "Đo lại với SET jit = off. Nếu tốt hơn: tắt jit theo role/database hoặc tăng jit_above_cost/jit_optimize_above_cost. "
+         "Lưu ý: Cloud SQL KHÔNG hỗ trợ LLVM JIT – nếu plan lấy từ lab/self-hosted mà thấy JIT, trên Cloud SQL phần này không tồn tại.",
+         ["BEGIN; SET LOCAL jit = off; EXPLAIN (ANALYZE) ...; ROLLBACK;", "SELECT pg_jit_available();"],
+         ["jit", "cloudsql_features"]),
     Rule("PLAN-PARALLEL", "Worker song song không được cấp đủ", "plan",
          "Workers Launched < Workers Planned: hết max_parallel_workers / max_worker_processes. Plan được chọn với giả định "
          "song song nhưng chạy tuần tự → chậm hơn dự kiến.",
@@ -160,11 +182,15 @@ _R: List[Rule] = [
          "danh sách kết quả: O(N×M) – hàng trăm triệu đến hàng tỉ phép so sánh. Ở PG17, việc lấy stats xuyên CTE "
          "(f7816aec2) có thể làm ước lượng của subquery TĂNG (đúng hơn) → vượt ngưỡng → mất hash, dù PG13 vẫn hash nhờ "
          "ước lượng sai 'may mắn'.",
-         "Viết lại NOT IN thành NOT EXISTS (anti-join, không phụ thuộc work_mem) – lưu ý khác biệt ngữ nghĩa khi cột có NULL; "
-         "hoặc tăng work_mem/hash_mem_multiplier cho session chạy batch; hoặc đưa danh sách vào temp table có index rồi anti-join.",
-         ["... WHERE NOT EXISTS (SELECT 1 FROM <list> l WHERE l.col = p.col)   -- thay cho p.col NOT IN (SELECT col FROM <list>)",
-          "BEGIN; SET LOCAL work_mem = '64MB'; EXPLAIN ...; ROLLBACK;   -- kiểm tra plan có quay lại 'hashed SubPlan'"],
-         ["notin_wiki", "subquery", "hash_mem", "cte_stats_pganalyze"]),
+         "KHÔNG sửa code (xem mục Khắc phục / lệnh `remedy`): (1) pg_hint_plan hint table `Set(hash_mem_multiplier N)` chỉ cho "
+         "đúng câu này (khoá query_id); (2) ALTER ROLE <role batch> IN DATABASE <db> SET hash_mem_multiplier/work_mem; "
+         "(3) flag instance. Ngưỡng chính xác (subplan_is_hashable, giống nhau PG13→18): rows × (MAXALIGN(width) + 24) ≤ "
+         "work_mem × hash_mem_multiplier – tool tính sẵn giá trị tối thiểu (khớp lab tới từng kB). SỬA CODE: NOT EXISTS "
+         "(anti-join, không phụ thuộc work_mem; chú ý NULL). Index KHÔNG giúp (SubPlan duyệt tuplestore của CTE). "
+         "SubPlan tương quan (tham chiếu cột ngoài) thì không bao giờ hash được.",
+         ["BEGIN; SET LOCAL work_mem = '<min từ tool>'; EXPLAIN ...; ROLLBACK;   -- plan có quay lại 'hashed SubPlan'?",
+          "... WHERE NOT EXISTS (SELECT 1 FROM <list> l WHERE l.col = p.col)   -- thay cho p.col NOT IN (SELECT col FROM <list>)"],
+         ["subselect_src", "tom_notin", "perf_12_17", "notin_wiki", "subquery", "hint_table", "hash_mem", "cte_stats_pganalyze"]),
     # --------------------------------------------------------------- compare
     Rule("CMP-REGRESSION", "Thời gian thực thi tăng giữa hai phiên bản", "compare",
          "Cùng câu query, cùng dữ liệu, bản mới chậm hơn. Các finding khác cho biết vì sao.",
@@ -195,9 +221,11 @@ _R: List[Rule] = [
          "chuyển sang duyệt danh sách cho từng dòng. Nguyên nhân thường gặp khi 13→17: ước lượng số dòng của subquery ở bản "
          "mới lớn hơn (PG17 dùng stats xuyên CTE; hoặc stats mới) nên bảng băm ước lượng vượt work_mem × hash_mem_multiplier; "
          "hoặc work_mem/hash_mem_multiplier của instance mới nhỏ hơn.",
-         "Như PLAN-SUBPLAN-NOHASH: NOT EXISTS, hoặc tăng work_mem cho session, hoặc temp table + anti-join. Kiểm tra lại "
+         "Như PLAN-SUBPLAN-NOHASH. Không sửa code: hint table Set(hash_mem_multiplier) / ALTER ROLE … IN DATABASE … SET / flag. "
+         "Sửa code: NOT EXISTS. Revert code ứng dụng KHÔNG cứu được vì câu SQL cũ vẫn gặp planner PG17. Kiểm tra lại "
          "work_mem/hash_mem_multiplier giữa hai instance (Cloud SQL flags).",
-         ["BEGIN; SET LOCAL work_mem = '64MB'; EXPLAIN ...; ROLLBACK;"], ["notin_wiki", "hash_mem", "cte_stats_pganalyze"],
+         ["BEGIN; SET LOCAL hash_mem_multiplier = <min từ tool>; EXPLAIN ...; ROLLBACK;"],
+         ["subselect_src", "tom_notin", "perf_12_17", "hint_table", "alter_role", "cloudsql_flags", "notin_wiki", "cte_stats_pganalyze"],
          since="17"),
     Rule("CMP-CTE-PATHKEYS", "PG17 dùng thứ tự sort của CTE (Merge Join trên CTE Scan)", "compare",
          "Từ PG17 (commit a65724dfa) planner biết kết quả CTE đã sắp xếp và có thể chọn Merge Join không cần Sort. "
@@ -222,10 +250,12 @@ _R: List[Rule] = [
          "'may mắn' ước lượng lớn hơn. Đây KHÔNG phải do thiếu ANALYZE – ANALYZE lại không giúp được.",
          "Dùng NOT MATERIALIZED (planner thấy bảng gốc và index – lab CASE 3: 20.6 s → 0.37 s); hoặc materialize vào temp "
          "table + index rồi ANALYZE để có stats của CHÍNH tập con. Lưu ý: CREATE STATISTICS trên bảng gốc KHÔNG giúp được "
-         "CTE Scan materialized (planner chỉ mượn stats từng cột) – đã thử trong lab, ước lượng vẫn 1 dòng.",
+         "CTE Scan materialized (planner chỉ mượn stats từng cột) – đã thử trong lab, ước lượng vẫn 1 dòng. Không sửa code: hint "
+         "table pg_hint_plan (HashJoin(...) hoặc Set(enable_nestloop off)) chỉ cho câu này. Không có GUC tắt f7816aec2; "
+         "cộng đồng PG coi đây là hành vi đúng (TPC-DS q95 chậm 2× trên PG17 nhưng không sửa).",
          ["WITH x AS NOT MATERIALIZED (...)   -- thử trong transaction và so sánh plan",
           "CREATE TEMP TABLE x AS <cte query>; CREATE INDEX ON x(<join key>); ANALYZE x;"],
-         ["cte_stats_pganalyze", "ext_stats", "boringsql_cte"], since="17"),
+         ["cte_stats_pganalyze", "q95", "ext_stats", "boringsql_cte", "hint_table"], since="17"),
     Rule("CMP-SETTINGS", "Tham số planner khác nhau (theo EXPLAIN SETTINGS)", "compare",
          "Các tham số được in bởi EXPLAIN (SETTINGS) khác nhau giữa hai lần chạy – plan có thể khác vì cấu hình chứ không vì phiên bản.",
          "Đồng bộ tham số rồi so sánh lại.", [], []),

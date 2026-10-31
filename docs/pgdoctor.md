@@ -21,7 +21,8 @@ Kết quả là một file `report.html` tự chứa (mở offline được, có
 | | `CMP-DIVERGE` | Điểm phân kỳ đầu tiên của hai plan, thứ tự join khác nhau |
 | | `CMP-CTE-PATHKEYS` | PG17 dùng sort order của CTE (Merge Join trên CTE Scan, a65724dfa) |
 | | `CMP-NEW-NODE`, `CMP-SPILL`, `CMP-JIT`, `CMP-SETTINGS`, `CMP-GROUPKEY-ORDER` | Node chỉ có ở bản mới (Memoize…), tràn đĩa mới, JIT, EXPLAIN SETTINGS khác, GROUP BY reorder |
-| **Từng plan** | `PLAN-NL-RESCAN` ★ | Nested Loop chạy lại inner side không có index (CTE Scan/Seq Scan/Materialize) hàng nghìn lần |
+| **Từng plan** | `PLAN-CTE-COST` ★ | "SELECT từ CTE rất lâu": tách thời gian **thân CTE** (chạy 1 lần) và thời gian **quét lại** kết quả CTE (loops ≫ 1). Cho biết nên sửa chỗ quét lại hay tối ưu join bên trong CTE |
+| | `PLAN-NL-RESCAN` ★ | Nested Loop chạy lại inner side không có index (CTE Scan/Seq Scan/Materialize) hàng nghìn lần |
 | | `PLAN-SUBPLAN-NOHASH` ★ | SubPlan NOT IN không được hash. Chạy được cả khi chỉ có `EXPLAIN` (ước lượng số phép so sánh) |
 | | `PLAN-TEMP-IO` | Đọc file tạm hàng GB; báo khi lượng đọc gấp nhiều lần lượng ghi (kết quả trung gian bị quét lại) |
 | | `PLAN-MISEST` | Node **khởi phát** sai lệch ước lượng (bỏ qua các trường hợp hợp lệ: Merge Join inner, Limit, semi-join, ModifyTable) |
@@ -35,6 +36,41 @@ Kết quả là một file `report.html` tự chứa (mở offline được, có
 | **pg_stat_statements** | `PGSS-REGRESSION`, `PGSS-TEMP`, `PGSS-IO` | Query nào chậm đi nhiều nhất (ghép theo text đã chuẩn hoá vì `queryid` có thể đổi giữa các major version) |
 
 ★ là các pattern đã được **tái hiện và đo thật** trong lab docker của dự án. Xem `python .claude/skills/pgdoctor/pgdoctor_cli.py kb` hoặc mục *Knowledge base* trong report để đọc giải thích và nguồn của từng rule.
+
+### 1.1 Khắc phục: lệnh `remedy` (ưu tiên KHÔNG sửa code)
+
+Từ plan của câu chậm, tool sinh **runbook SQL** gồm các phương án thay thế. Phương án có phạm vi hẹp nhất đứng trước. Mỗi phương án có các bước, cách kiểm tra, cách hoàn tác và kết quả đo trong lab:
+
+```bash
+python .claude/skills/pgdoctor/pgdoctor_cli.py remedy --plan q.pg17.json --old-plan q.pg13.json \
+       --app-role batch_user --app-db appdb --app-name batch-job --keyword current_brand_code -o fix.sql
+```
+
+| Thứ tự | Phương án | Sửa code? | Phạm vi |
+|---|---|---|---|
+| 1 | pg_hint_plan **hint table** `Set(hash_mem_multiplier N)` (khoá `query_id`, lọc thêm theo `application_name` nếu muốn) | Không | 1 câu lệnh |
+| 2 | `ALTER ROLE … IN DATABASE … SET hash_mem_multiplier` | Không | 1 role trong 1 DB |
+| 3 | `ALTER ROLE … IN DATABASE … SET work_mem` | Không | 1 role trong 1 DB (cả sort) |
+| 4 | Flag instance (Cloud SQL, không cần restart) | Không | Toàn instance |
+| 5 | `NOT IN` → `NOT EXISTS` (có dạng null-safe) | **Có** | 1 câu lệnh |
+| – | Không hiệu quả: index, ANALYZE lại, `SET STATISTICS 0`, `CREATE STATISTICS`, revert code | – | – |
+
+- Với `NOT IN` không được hash, tool tính **ngưỡng chính xác** theo `subplan_is_hashable()`: `rows × (MAXALIGN(width) + 24) ≤ work_mem × hash_mem_multiplier`.
+  - Lab đo được ngưỡng PG17 là `10381kB` → không hash, `10382kB` → hash. Tool tính ra đúng `10382 kB`.
+  - Giá trị khuyến nghị gấp đôi mức tối thiểu.
+- Nếu plan không có `EXPLAIN (SETTINGS)`, truyền giá trị thật của session ứng dụng: `--work-mem 4MB --hash-mem-multiplier 2`. Khi không truyền, tool dùng mặc định theo phiên bản: PG13/14 là 1.0, PG15+ là 2.0. Phiên bản lấy từ nhãn `.pg17.` trong tên file, hoặc từ cú pháp EXPLAIN.
+- Plan lấy bằng `EXPLAIN (VERBOSE)` có `Query Identifier`, tool sẽ điền sẵn vào câu `INSERT INTO hint_plan.hints`.
+  - Phải kiểm tra query_id đó đúng là của câu **ứng dụng gửi**: literal và bind parameter cho query_id khác nhau.
+  - Runbook có sẵn câu tra `pg_stat_activity.query_id` (câu đang chạy) và `pg_stat_statements.queryid`.
+- Các pattern khác cũng có phương án tương ứng:
+  - Nested Loop quét lại CTE: hint `HashJoin(...)` / `Set(enable_nestloop off)`.
+  - Memoize: `enable_memoize`.
+  - GROUP BY reorder: `enable_group_by_reordering`.
+  - Thiếu stats: `ANALYZE`.
+  - JIT: Cloud SQL không hỗ trợ LLVM JIT nên tool đánh dấu phương án này là "không áp dụng".
+- `analyze … --remedies fix.sql` ghi runbook cho mọi query. Report HTML có thêm mục **Khắc phục**.
+
+Chi tiết và số đo: [`solutions.md`](solutions.md), lab: [`lab/remedies/`](../lab/remedies/README.md).
 
 ## 2. Thu thập dữ liệu (chạy trên cả hai server)
 
@@ -99,6 +135,7 @@ Khi bản cũ và bản mới cùng có vấn đề, finding thuộc **bản cũ
 | `qA_after_analyze` | Cùng query sau khi ANALYZE trên PG17 | 188 ms → 166 ms (hết regression) |
 | `qB_bug18466`, `qC_cte_pathkeys` | Thay đổi PG17 về stats/pathkeys của CTE (BUG #18466, a65724dfa) | Không chậm hơn, nhưng plan đổi |
 | `qD_cte_skew` | Tập con tập trung: PG17 dùng stats toàn bảng cho cột CTE | Ước lượng PG17 sai 44× (PG13 4×) |
+| `qF_notin_remedy` + `remedy/` | CASE 4 đo lại trên `lab/remedies` (2 vCPU). Kèm plan sau khi áp dụng hint table / ALTER ROLE và plan chỉ có EXPLAIN có `Query Identifier` | PG13 4.0 s; PG17 1 228 s; sau khắc phục 4.1–4.2 s |
 | `qE_notin_subplan` | `UPDATE … NOT IN (SELECT … FROM cte)`: PG13 hashed SubPlan, PG17 thì không (plan PG17 **chỉ có EXPLAIN**) | Lab: 0.79 s → 289 s |
 | `collected/pg13`, `collected/pg17` | Snapshot thật từ collector. Trên PG17, `ANALYZE ord` **lỗi** vì hàm `status_rank()` trong expression index | `HEALTH-SEARCHPATH-FUNC` = critical |
 | `synthetic/` | pg_stat_statements **giả lập** (chỉ để kiểm thử module, không phải số đo) | |
@@ -117,5 +154,5 @@ Muốn tạo lại các mẫu: dựng lab (`bash lab/scripts/repro.sh`), rồi c
 - Mọi rule là **heuristic**. Hãy xác nhận bằng `EXPLAIN (ANALYZE, BUFFERS)` và thử nghiệm `SET LOCAL …` trong transaction rồi `ROLLBACK`.
 - Thời gian riêng (exclusive time) của từng node chỉ là xấp xỉ, nhất là với CTE (InitPlan) và node song song.
 - Các node được ghép giữa hai plan dựa trên tập bảng/alias. Nếu query bị viết lại khác nhau giữa hai bản, việc ghép có thể sai.
-- Ngưỡng hash của SubPlan chỉ là ước tính, gần với công thức của planner, nên chỉ dùng để định hướng.
+- Ngưỡng hash của SubPlan dùng đúng công thức của planner, nhưng `rows` trong EXPLAIN đã được làm tròn. Ở sát ngưỡng có thể lệch 1 kB, nên luôn dùng giá trị khuyến nghị (gấp đôi) và kiểm tra bằng `EXPLAIN`.
 - Tool không thấy được nguyên nhân nằm ngoài plan: chờ lock, IO throttling của Cloud SQL, replica/HA. Với các trường hợp này, xem `pg_stat_activity.wait_event` trong lúc query chạy.

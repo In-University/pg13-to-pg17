@@ -1,0 +1,41 @@
+psql:/rsql/e2_role_settings.sql:4: ERROR:  role "app_batch" cannot be dropped because some objects depend on it
+DETAIL:  privileges for table stores
+privileges for table brands
+privileges for table brand_assignments
+privileges for table products
+privileges for view pg_stat_statements_info
+privileges for view pg_stat_statements
+privileges for schema hint_plan
+privileges for table hint_plan.hints
+psql:/rsql/e2_role_settings.sql:5: ERROR:  role "app_batch" already exists
+ALTER ROLE
+ALTER DATABASE
+ALTER ROLE
+    role    |    db    |        setconfig        
+------------+----------+-------------------------
+ app_batch  | (mọi db) | {work_mem=16MB}
+ (mọi role) | lab4     | {work_mem=8MB}
+ app_batch  | lab4     | {hash_mem_multiplier=4}
+(3 rows)
+
+-- session mới của app_batch:
+        name         | setting |    source     
+---------------------+---------+---------------
+ hash_mem_multiplier | 4       | database user
+ work_mem            | 16384   | user
+(2 rows)
+
+-- session mới của postgres (chỉ chịu ALTER DATABASE):
+        name         | setting |  source  
+---------------------+---------+----------
+ hash_mem_multiplier | 2       | default
+ work_mem            | 8192    | database
+(2 rows)
+
+-- app_batch nhưng client gửi options '-c work_mem=4MB' (PGOPTIONS / JDBC options) -> ghi đè ALTER ROLE:
+        name         | setting |    source     
+---------------------+---------+---------------
+ hash_mem_multiplier | 4       | database user
+ work_mem            | 4096    | client
+(2 rows)
+

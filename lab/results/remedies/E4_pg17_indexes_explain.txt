@@ -1,0 +1,33 @@
+BEGIN
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+ANALYZE
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Update on products p  (cost=21797.88..53249587.07 rows=0 width=0)
+   CTE current_brand_code
+     ->  Hash Join  (cost=667.42..21797.59 rows=950283 width=10)
+           Hash Cond: (ba.brand_id = b.id)
+           ->  Hash Join  (cost=526.92..19159.98 rows=950473 width=7)
+                 Hash Cond: (ba.store_id = s.id)
+                 ->  Index Only Scan using brand_assignments_store_id_brand_id_idx on brand_assignments ba  (cost=0.42..15995.32 rows=1004800 width=8)
+                 ->  Hash  (cost=289.00..289.00 rows=19000 width=7)
+                       ->  Seq Scan on stores s  (cost=0.00..289.00 rows=19000 width=7)
+                             Filter: active
+           ->  Hash  (cost=78.00..78.00 rows=5000 width=11)
+                 ->  Seq Scan on brands b  (cost=0.00..78.00 rows=5000 width=11)
+   ->  Index Scan using products_status_idx on products p  (cost=0.29..53227789.48 rows=2383 width=46)
+         Index Cond: (status = 'PENDING'::text)
+         Filter: (NOT (ANY (brand_code = (SubPlan 2).col1)))
+         SubPlan 2
+           ->  CTE Scan on current_brand_code cbc  (cost=0.00..21381.37 rows=380113 width=32)
+                 Filter: (region = 'VN'::text)
+ JIT:
+   Functions: 29
+   Options: Inlining true, Optimization true, Expressions true, Deforming true
+(21 rows)
+
+ROLLBACK

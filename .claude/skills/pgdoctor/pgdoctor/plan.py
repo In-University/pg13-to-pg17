@@ -218,6 +218,7 @@ class Plan:
     source: str = ""
     fmt: str = "json"
     nodes: List[Node] = field(default_factory=list)
+    major_hint: Optional[int] = None
 
     @property
     def analyzed(self) -> bool:
@@ -253,6 +254,22 @@ class Plan:
         return self.meta.get("Settings") or {}
 
     @property
+    def query_id(self) -> Optional[int]:
+        """'Query Identifier' printed by EXPLAIN (VERBOSE) on PG14+ (= pg_stat_statements.queryid, pg_hint_plan key)."""
+        v = self.meta.get("Query Identifier")
+        try:
+            return int(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def major(self) -> Optional[int]:
+        """Server major version: given by the caller (file label pg13/pg17) or inferred from EXPLAIN syntax."""
+        if self.major_hint:
+            return self.major_hint
+        return infer_major(self)
+
+    @property
     def triggers(self) -> List[Dict[str, Any]]:
         return self.meta.get("Triggers") or []
 
@@ -267,6 +284,35 @@ class Plan:
 
 
 # ---------------------------------------------------------------------------
+_PG17_PARAM_RE = re.compile(r"\((?:hashed )?(?:SubPlan|InitPlan) \d+\)\.col\d+")
+
+
+def infer_major(plan: "Plan") -> Optional[int]:
+    """Lower bound of the server major version from EXPLAIN syntax; None if nothing tells.
+
+    PG17 prints sublink parameters as '(SubPlan 2).col1' / '(InitPlan 1).col1' (PG13–16: '$0', 'hashed SubPlan 2').
+    'Query Identifier' only exists from PG14.  Used to pick version defaults (e.g. hash_mem_multiplier 1.0 vs 2.0)."""
+    for n in plan.nodes:
+        for v in n.raw.values():
+            for x in (v if isinstance(v, list) else [v]):
+                if isinstance(x, str) and _PG17_PARAM_RE.search(x):
+                    return 17
+    if plan.meta.get("Query Identifier") is not None:
+        return 14
+    return None
+
+
+def major_from_label(label: Optional[str]) -> Optional[int]:
+    """'pg17' / 'PG13' / '17' -> 17 / 13; 'old'/'new' -> None."""
+    if not label:
+        return None
+    m = re.search(r"(\d{1,2})(?:\.\d+)?$", label.strip())
+    if not m:
+        return None
+    v = int(m.group(1))
+    return v if 9 <= v <= 30 else None
+
+
 def _build(raw: Dict[str, Any], parent: Optional[Node], depth: int, acc: List[Node]) -> Node:
     node = Node(raw={k: v for k, v in raw.items() if k != "Plans"}, parent=parent, depth=depth)
     node.id = len(acc)
@@ -326,10 +372,16 @@ def _strip_psql_decoration(text: str) -> str:
     return "\n".join(out)
 
 
-def load_plan(path: str) -> Plan:
+def load_plan(path: str, major: Optional[int] = None) -> Plan:
+    """Load a plan file. major: server major version; default = taken from a '.pgNN.' file-name label if any."""
     with open(path, "r", encoding="utf-8-sig") as fh:
         text = fh.read()
-    return parse_plan_text(text, source=path)
+    plan = parse_plan_text(text, source=path)
+    if major is None:
+        m = re.search(r"[._-]pg(\d{1,2})(?=[._-])", path.replace("\\", "/").rsplit("/", 1)[-1], re.I)
+        major = int(m.group(1)) if m else None
+    plan.major_hint = major
+    return plan
 
 
 def parse_plan_text(text: str, source: str = "") -> Plan:
