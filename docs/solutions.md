@@ -21,7 +21,7 @@
 | **Bền vững** | Viết lại `NOT IN` → `NOT EXISTS` (anti-join) rồi build lại (Mục 6) | Có | 1 câu lệnh | E6, E7: 4.2–4.4 s, số dòng giống hệt |
 | Đừng làm | Thêm index, `ANALYZE` lại, `SET STATISTICS 0`, `CREATE STATISTICS`, revert code, tắt JIT trên Cloud SQL (Mục 5) | — | — | E4, E5 |
 
-Trong lab, plan xấu của PG17 chạy **1 228 s (20.5 phút)** trên 2 vCPU (lab 8 vCPU trước đây đo 257–289 s) trên 2 vCPU (lab 8 vCPU trước đây đo 289 s). Bất kỳ phương án nào ở trên cũng đưa nó về **~4–6 s**, bằng PG13 (4.0–4.2 s trên cùng máy).
+Trong lab, plan xấu của PG17 chạy **1 228 s (20.5 phút)** trên 2 vCPU (lab 8 vCPU trước đây đo 257–289 s). Bất kỳ phương án nào ở trên cũng đưa nó về **~4–6 s**, bằng PG13 (4.0–4.2 s trên cùng máy).
 
 ---
 
@@ -241,7 +241,119 @@ Những thủ thuật **có tác dụng nhưng không khuyến nghị**:
 
 ## 6. Sửa code (bền vững, khi build lại được)
 
-### 6.1 `NOT IN` → `NOT EXISTS`
+### 6.1 `NOT IN` khác `NOT EXISTS` ở đâu, và vì sao `NOT EXISTS` nhanh hơn
+
+**Tóm tắt một câu:**
+- `NOT IN` có ngữ nghĩa NULL đặc biệt, nên planner **không được** đổi nó thành join.
+- Vì vậy `NOT IN` chỉ có hai cách chạy:
+  - bảng băm nằm trọn trong RAM;
+  - với **mỗi** dòng ngoài, quét lại toàn bộ subquery.
+- Ranh giới giữa hai cách đó là một ngưỡng bộ nhớ cứng.
+- `NOT EXISTS` thì được đổi thành **anti join**, tức một node join bình thường:
+  - planner được chọn Hash, Merge hoặc Nested Loop;
+  - Hash Join tràn bộ nhớ thì ghi ra đĩa theo batch và chậm dần, không rơi xuống vực.
+
+Dưới đây là chi tiết. Phần nói về mã nguồn đã đối chiếu với `REL_17_STABLE`; mọi con số lấy từ `lab/results/remedies/`.
+
+#### a. Khác về ngữ nghĩa: logic ba giá trị
+
+`x NOT IN (s1, s2, …, sM)` là cách viết gọn của `x <> s1 AND x <> s2 AND … AND x <> sM`. Mỗi phép `<>` cho TRUE, FALSE hoặc **NULL** (không biết):
+
+| Tình huống | `x NOT IN (S)` | `NOT EXISTS (… WHERE S.v = x)` | Lý do |
+|---|---|---|---|
+| `x` có trong `S` | FALSE | FALSE | Giống nhau |
+| `x` không có trong `S`, `S` không có NULL | TRUE | TRUE | Giống nhau |
+| `x` không có trong `S`, nhưng `S` **có một dòng NULL** | **NULL** → dòng **không** được update | TRUE → dòng **được** update | `x <> NULL` là NULL, kéo cả chuỗi `AND` thành NULL |
+| `x` là NULL, `S` không rỗng | **NULL** → không update | TRUE → update | `NULL <> s` là NULL; còn `NULL = s` không khớp dòng nào nên "không tồn tại" |
+| `S` rỗng | TRUE | TRUE | Giống nhau |
+
+Bảng này đã chạy thật ở lab E6 (`E6_null_semantics.txt`).
+
+`NOT EXISTS` chỉ hỏi "có dòng nào khớp không?", nên luôn trả TRUE hoặc FALSE, không bao giờ trả NULL.
+
+#### b. Khác về cách planner xử lý
+
+1. **Bước kéo subquery lên thành join** (`pull_up_sublinks_qual_recurse()` trong `prepjointree.c`).
+   - Ngay dưới một `NOT`, chỉ dạng `EXISTS` được chuyển: `convert_EXISTS_sublink_to_join(…, under_not = true)` sinh ra `JOIN_ANTI`. Mọi dạng khác được trả về nguyên trạng (comment trong code: "Else return it unmodified").
+   - `NOT IN` thực chất là `NOT (x = ANY (subquery))`, nên **luôn** ở lại dạng SubPlan.
+   - Lý do: anti join chỉ phân biệt được hai trạng thái "có dòng khớp" và "không có dòng khớp". Nó không biểu diễn được trạng thái NULL ở hai dòng giữa của bảng mục a. Nếu đổi `NOT IN` thành anti join thì những dòng đó sẽ bị update sai.
+   - So sánh với `IN` (không có `NOT`): `IN` **được** đổi thành semi join, vì trong `WHERE` thì FALSE và NULL đều loại dòng. Thêm `NOT` thì FALSE thành TRUE nhưng NULL vẫn là NULL, nên sự khác biệt đó lộ ra.
+2. **`NOT IN` ở lại thành một biểu thức `SubPlan` trong `Filter`** và được tính cho từng dòng ngoài. Executor (`nodeSubplan.c`) chỉ có hai cách chạy nó:
+
+   | | `hashed SubPlan` | `SubPlan` thường (`ExecScanSubPlan`) |
+   |---|---|---|
+   | Cách chạy | Chạy subquery **1 lần**, nạp vào bảng băm trong RAM. Các dòng có NULL vào một bảng riêng (`hashnulls`) để giữ đúng ngữ nghĩa NULL. Mỗi dòng ngoài tra bảng băm 1 lần | Comment trong code: "default case where we have to **rescan subplan each time**". Mỗi dòng ngoài quét lại subquery từ đầu và dừng ở dòng khớp đầu tiên (`break; /* needn't look at any more rows */`) |
+   | Chi phí | ≈ M + N | Dòng **không** có trong tập phải đọc **hết** M dòng, nên ≈ N × M |
+   | Khi vượt bộ nhớ | **Không có cơ chế ghi ra đĩa**: `nodeSubplan.c` không hề kiểm tra `work_mem` lúc chạy | Không cần bảng băm |
+
+   Vì bảng băm không thể tràn ra đĩa, planner phải quyết định ngay lúc lập plan xem có dám hash hay không. Đó là `subplan_is_hashable()`: ước lượng `rows × (width + 24)` phải ≤ `work_mem × hash_mem_multiplier`. Chỉ cần vượt 1 kB là rơi thẳng sang cột phải (E1: `10381kB` không hash, `10382kB` hash).
+3. **`NOT EXISTS` trở thành node `Anti Join` trong cây join.** Planner chọn cách join theo chi phí như mọi join khác:
+   - `Hash Anti Join`;
+   - `Merge Anti Join`;
+   - `Nested Loop Anti Join` + Index Scan;
+   - từ PG16 có thêm `Right Anti Join`, băm phía nhỏ hơn.
+
+   Hash Join **có** cơ chế tràn bộ nhớ: nó chia dữ liệu thành nhiều batch và ghi ra file tạm. Thời gian tăng dần theo lượng dữ liệu chứ không nhảy vọt, nên **không cần** kiểm tra ngưỡng như `subplan_is_hashable()`.
+
+#### c. Hình dung bằng mã giả, với số liệu của lab
+
+```
+NOT IN, SubPlan không hash (PG17)              NOT EXISTS → Hash Anti Join (PG17)
+---------------------------------              -----------------------------------
+for p in products PENDING (5 000 dòng):        h = hash(CTE lọc region='VN')    -- 1 lần, 400k dòng
+    for c in CTE (1 000 000 dòng, file tạm):   for p in products PENDING (5 000 dòng):
+        if c.region='VN' and c.code=p.code:        if p.brand_code not in h:      -- tra băm O(1)
+            break        -- thấy: dừng sớm             update p
+    else: update p       -- không thấy: đã đọc hết 1M dòng
+```
+
+Đúng 2 500 dòng cần update lại chính là 2 500 dòng **không** tìm thấy. Mỗi dòng đó phải đọc trọn 1 triệu dòng của CTE.
+
+#### d. Đo thực tế trong lab (cùng dữ liệu, `work_mem = 4MB`)
+
+| | `NOT IN`, PG17 (`SubPlan`) | `NOT IN`, PG13 (`hashed SubPlan`) | `NOT EXISTS`, PG17 (`Hash Anti Join`) |
+|---|---|---|---|
+| Số lần quét CTE (`loops`) | **5 000** | 1 | 1 |
+| Tổng số dòng CTE phải đọc | ≈ **2.5 tỷ** (trung bình 500 630 dòng/lần × 5 000) | 1 000 000 | 1 000 000 |
+| Đọc file tạm (`temp read`) | 6 348 856 block ≈ **48 GB** | 0 | 2 602 block ≈ 20 MB |
+| Bộ nhớ băm | — | 400k dòng, không bị giới hạn | 3 971 kB, **8 batch** (vượt 4 MB nên chia batch, vẫn nhanh) |
+| Thời gian | **1 228 s** | 4.0 s | **4.4 s** |
+
+Nguồn: `E0_pg17_baseline.json`, `E0_pg13_baseline.txt`, `E7_pg17_notexists.txt`.
+
+Lượng công việc chênh nhau khoảng 2 500 lần. Thời gian chỉ chênh khoảng 280 lần vì cả hai phương án đều phải trả chi phí cố định 2–3 s để chạy thân CTE.
+
+Dòng `Batches: 8` ở cột `NOT EXISTS` minh hoạ rõ khác biệt:
+- cùng một bảng băm vượt `work_mem`;
+- với Hash Join, vượt bộ nhớ chỉ có nghĩa là chia batch, tốn thêm vài trăm ms (Hash node 4 220 ms so với CTE Scan 3 888 ms);
+- với `NOT IN`, vượt ngưỡng nghĩa là chuyển sang O(N×M).
+
+#### e. Nghịch lý: PG17 ước lượng **đúng hơn** nhưng chạy **chậm hơn**
+
+- **PG13** ước lượng CTE còn 4 717 dòng, sai 85 lần so với thực tế 400 000.
+  - Với ước lượng đó, bảng băm "vừa" bộ nhớ nên planner chọn hash.
+  - Lúc chạy, bảng băm 400k dòng vẫn được dựng trọn trong RAM, vì không có giới hạn lúc chạy. Kết quả nhanh.
+  - PG13 nhanh **nhờ may mắn** do ước lượng sai.
+- **PG17** ước lượng 379 670 dòng, gần đúng.
+  - 20.3 MB lớn hơn 8 MB, nên planner từ chối hash vì bảng băm này không tràn ra đĩa được.
+  - Chỉ còn lại lựa chọn O(N×M).
+
+Gốc của vấn đề là `NOT IN (subquery)` không có đường lùi ở giữa hai cách chạy. `NOT EXISTS` loại bỏ được điểm gãy đó, nên nó là cách sửa **bền vững**: dữ liệu tăng hay ước lượng đổi thì plan chỉ chậm dần chứ không gãy.
+
+#### f. Khi nào `NOT EXISTS` **không** được đổi thành anti join
+
+Nếu subquery thuộc một trong các dạng sau thì `NOT EXISTS` vẫn ở lại thành SubPlan (`convert_EXISTS_sublink_to_join()` và `simplify_EXISTS_query()` trong `subselect.c`):
+- có `WITH` **bên trong** subquery (tham chiếu CTE khai báo ở câu ngoài như `current_brand_code` thì vẫn được, E7 đã kiểm chứng);
+- có aggregate, window function, `UNION`/`INTERSECT`/`EXCEPT`, `HAVING`, `OFFSET`, `FOR UPDATE`;
+- tham chiếu cột của câu ngoài ở chỗ khác ngoài `WHERE` của subquery;
+- `WHERE` của subquery chứa hàm volatile;
+- `WHERE` của subquery không tham chiếu cột nào của câu ngoài. Khi đó nó thành `InitPlan`, chỉ chạy 1 lần, nên vẫn nhanh.
+
+Kể cả khi vẫn là SubPlan, `EXISTS` dừng ở dòng khớp đầu tiên và tận dụng được index trên cột tương quan. Vì vậy nó vẫn tốt hơn `NOT IN` không hash.
+
+Sau khi viết lại, luôn `EXPLAIN` để chắc chắn plan có `Anti Join`.
+
+### 6.2 Viết lại `NOT IN` → `NOT EXISTS`
 
 `NOT EXISTS` được chuyển thành **Hash/Merge Anti Join**, không phụ thuộc ngưỡng hashed SubPlan:
 
@@ -266,14 +378,14 @@ WHERE NOT EXISTS (SELECT 1 FROM S WHERE S.col = t.x)
 
 Lab E7 (PG17): `NOT EXISTS` chạy 4.4 s, dạng null-safe 4.2 s (đều là Hash Anti Join). Số dòng bị UPDATE của cả ba dạng đều là **2 500**.
 
-### 6.2 Các thay đổi khác
+### 6.3 Các thay đổi khác
 
 - **CTE dùng một lần:** dùng `NOT MATERIALIZED` để planner thấy bảng gốc kèm điều kiện.
 - **Tập trung gian lớn:** dùng bảng tạm + index + `ANALYZE` để có stats của chính tập con.
 - **UPDATE lớn:** chia theo khoảng khoá để giảm WAL/lock, và để một plan xấu không kéo dài vài giờ.
 - **Rà soát codebase:** tìm mọi `NOT IN (SELECT` (ví dụ `grep -rniE "not\s+in\s*\(\s*select"`). Mỗi chỗ là một "quả bom hẹn giờ" khi dữ liệu tăng hoặc khi lên version.
 
-### 6.3 Ghi chú cho lần nâng cấp sau (PG18/PG19)
+### 6.4 Ghi chú cho lần nâng cấp sau (PG18/PG19)
 
 - **PG18:** `pg_upgrade` giữ lại optimizer statistics, nhưng công thức hash của SubPlan **không đổi**.
 - **Nhánh PG19 (`REL_19_STABLE`):**
@@ -329,6 +441,7 @@ Lab E7 (PG17): `NOT EXISTS` chạy 4.4 s, dạng null-safe 4.2 s (đều là Has
 - [features](https://docs.cloud.google.com/sql/docs/postgres/features): LLVM JIT không được hỗ trợ.
 
 **PostgreSQL:**
+- Cách planner/executor xử lý sublink (REL_17): [`prepjointree.c`](https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/optimizer/prep/prepjointree.c) (`pull_up_sublinks_qual_recurse`: dưới `NOT` chỉ chuyển `EXISTS`), [`subselect.c`](https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/optimizer/plan/subselect.c) (`convert_EXISTS_sublink_to_join`, `simplify_EXISTS_query`, `subplan_is_hashable`), [`nodeSubplan.c`](https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/executor/nodeSubplan.c) (`ExecHashSubPlan` / `ExecScanSubPlan`, bảng băm không spill).
 - `subplan_is_hashable()`: [REL_13](https://github.com/postgres/postgres/blob/REL_13_STABLE/src/backend/optimizer/plan/subselect.c), [REL_17](https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/optimizer/plan/subselect.c), [PG19: 1ea5bdb00](https://github.com/postgres/postgres/commit/1ea5bdb00bfbc6f8034859cd19769346bf31dc53).
 - [PG17 release notes](https://www.postgresql.org/docs/17/release-17.html) ("improve CTE plans by considering the statistics and sort order of columns…"); [commit f7816aec2](https://github.com/postgres/postgres/commit/f7816aec23eed1dc1da5f9a53cb6507d30b7f0a2).
 - [ALTER ROLE](https://www.postgresql.org/docs/17/sql-alterrole.html), [subquery expressions (NOT IN và NULL)](https://www.postgresql.org/docs/17/functions-subquery.html), [wiki: Don't use NOT IN](https://wiki.postgresql.org/wiki/Don%27t_Do_This#Don.27t_use_NOT_IN).

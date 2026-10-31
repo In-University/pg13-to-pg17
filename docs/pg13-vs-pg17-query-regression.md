@@ -182,6 +182,10 @@ Hai commit này **không** được backport về PG16 trở xuống. Mục đí
 - Vì vậy nếu PG17 ước lượng subquery **lớn hơn** PG13 (do stats propagate, hoặc do join estimate thay đổi), câu `NOT IN` có thể rơi từ hashed sang tuyến tính → chậm hàng trăm lần **dù stats đầy đủ**.
 - Nhận diện trong `EXPLAIN`: PG13 `Filter: (NOT (hashed SubPlan 2))`; PG17 `Filter: (NOT (ANY (brand_code = (hashed SubPlan 2).col1)))` là tốt; **không có chữ `hashed`** là xấu.
 - **(rev 3) Công thức chính xác** (`subplan_is_hashable()` trong `subselect.c`, giống hệt nhau ở REL_13, REL_17, REL_18): `plan_rows × (MAXALIGN(plan_width) + MAXALIGN(SizeofHeapTupleHeader)) ≤ get_hash_memory_limit()`, với `MAXALIGN(23) = 24`. Lab E1 đo được: PG17 `work_mem = 10381kB` → SubPlan, `10382kB` → hashed (tính ra 379 670 × 56 / 2 / 1024 = 10381.6). Subquery tương quan thì không bao giờ được hash.
+- **(rev 4) Vì sao `NOT EXISTS` không bị điểm gãy này:** xem [solutions.md Mục 6.1](solutions.md#61-not-in-khác-not-exists-ở-đâu-và-vì-sao-not-exists-nhanh-hơn). Tóm tắt:
+  - `NOT IN` có ngữ nghĩa NULL nên chỉ `NOT EXISTS` được `pull_up_sublinks` đổi thành anti join.
+  - Bảng băm của hashed SubPlan **không spill** được, nên planner phải dựa vào một ngưỡng cứng.
+  - Hash Anti Join thì tràn bộ nhớ sang batch: lab PG17 `Batches: 8`, 4.4 s.
 - **(rev 3) Tương lai:** nhánh PG19 thay công thức bằng `EstimateSubplanHashTableSpace()` (commit `1ea5bdb00`), ước lượng bảng băm lớn hơn nên planner **ít** hash hơn. Nhánh này cũng thêm tính năng tự chuyển `NOT IN` → anti-join (commit `383eb21eb`), nhưng chỉ khi chứng minh được hai vế không NULL.
 
 #### 2.6.4 Nguyên nhân KHÔNG thuộc về plan (UPDATE chạy lâu vì *chờ*)
