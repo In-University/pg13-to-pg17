@@ -1,11 +1,11 @@
 ---
 name: pgdoctor
-description: Diagnose PostgreSQL queries that got slower after a major-version upgrade (13 → 17, Cloud SQL in-place upgrade / pg_upgrade). Use when the user provides EXPLAIN plans of the same query from the old and new server, asks why a query regressed after upgrading, wants to compare pg_settings / statistics / pg_stat_statements between two servers, or wants a pre-upgrade risk check. Detects offline: lost hashed SubPlan (NOT IN), Nested Loop re-scanning a CTE, missing stats after pg_upgrade, PG17 CTE column-statistics side effects, ANALYZE failing under PG17's safe search_path. Generates a remediation runbook that needs no application change (pg_hint_plan hint table, ALTER ROLE … IN DATABASE … SET, Cloud SQL flags) with the exact work_mem / hash_mem_multiplier threshold.
+description: Diagnose PostgreSQL queries that got slower after a major-version upgrade (13 → 17, Cloud SQL in-place upgrade / pg_upgrade). Use when the user provides EXPLAIN plans of the same query from the old and new server, asks why a query regressed after upgrading, wants to compare pg_settings / statistics / pg_stat_statements between two servers, or wants a pre-upgrade risk check. Detects offline: lost hashed SubPlan (NOT IN), Nested Loop re-scanning a CTE, missing stats after pg_upgrade, PG17 CTE column-statistics side effects, ANALYZE failing under PG17's safe search_path. Generates a remediation runbook that needs no application change (pg_hint_plan hint table, ALTER ROLE … IN DATABASE … SET, Cloud SQL flags) with the exact work_mem / hash_mem_multiplier threshold. Live mode (`run`) executes EXPLAIN of the statement on both servers through psql and lists the effective-configuration differences that matter for that statement's plan.
 ---
 
 # pgdoctor
 
-Offline analyzer (Python ≥ 3.8, standard library only). It reads files: EXPLAIN plans, pg_settings, catalog/statistics snapshots and pg_stat_statements from the old and new server. It never connects to a database. Output: findings (rule, severity, evidence, explanation, diagnostic SQL) as a console summary, JSON, and a self-contained HTML report. Finding texts are in Vietnamese.
+Analyzer (Python ≥ 3.8, standard library only). `analyze`, `remedy` and `qdiff` are offline: they read files (EXPLAIN plans, pg_settings, catalog/statistics snapshots, pg_stat_statements) from the old and new server. `run` and `capture` connect only through `psql` (configurable command), and always inside `BEGIN … ROLLBACK`. Output: findings (rule, severity, evidence, explanation, diagnostic SQL) as a console summary, JSON, and a self-contained HTML report. Finding texts are in Vietnamese.
 
 ## Files
 
@@ -15,7 +15,21 @@ Offline analyzer (Python ≥ 3.8, standard library only). It reads files: EXPLAI
 
 ## Workflow
 
-1. **Get the plan of the slow query from both servers:**
+0. **If both servers are reachable with psql, start here.** One command runs the statement on both servers and compares them:
+   ```bash
+   python <skill>/pgdoctor_cli.py run --old-dsn "<pg13>" --new-dsn "<pg17>" --query-file q.sql \
+          [--app-name <application_name>] [--analyze none|old|new|both] [--timeout 30min] \
+          [--param v1 --param v2 [--generic-plan]] [--client-options "-c work_mem=…"] \
+          [--psql | --old-psql | --new-psql "docker exec -i <c> psql"] --out-dir run1
+   ```
+   - It captures `pg_settings` inside the session that runs the statement. Log in as the application role so `ALTER ROLE/DATABASE … SET` and client options are included.
+   - The default is EXPLAIN only. `--analyze` runs inside `BEGIN … ROLLBACK` under `statement_timeout`, and falls back to the EXPLAIN plan on timeout. An UPDATE still holds row locks while it runs.
+   - It lists the parameters that differ, ranked `critical` (part of a finding's mechanism, also shown when equal) > `plan` (governs a node type in either plan) > `planner` > `other`, each with its `source`.
+   - For NOT IN SubPlans it computes the hash decision on both sides with the real session values, and states whether config or estimates caused the change.
+   - `EXPLAIN (SETTINGS)` alone cannot do this: it hides version-default changes such as `hash_mem_multiplier` 1 → 2.
+   - It writes `run1/report.html`, `run1/remedies.sql` (role/db taken from the session) and `run1/findings.json`.
+   - If the servers cannot be reached together, run `capture --dsn … --query-file q.sql --out-dir out/pg13` on each server, then `qdiff --old-dir out/pg13 --new-dir out/pg17`.
+1. **Otherwise, get the plan of the slow query from both servers:**
    ```sql
    BEGIN; EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) <query>; ROLLBACK;
    ```

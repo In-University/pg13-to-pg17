@@ -1,0 +1,220 @@
+{
+  "server_version_num": 130023,
+  "database": "lab4",
+  "default_statistics_target": "100",
+  "scope": "plan tables",
+  "tables": [
+    {
+      "schema": "public",
+      "name": "brand_assignments",
+      "relkind": "r",
+      "reltuples": 2000000.0,
+      "relpages": 12739,
+      "size_bytes": 176824320,
+      "relispartition": false,
+      "last_analyze": "2026-10-31T23:54:10.316683+00:00",
+      "last_autoanalyze": null,
+      "last_vacuum": "2026-10-31T23:54:10.012085+00:00",
+      "last_autovacuum": null,
+      "n_live_tup": 2000000,
+      "n_dead_tup": 0,
+      "n_mod_since_analyze": 0,
+      "has_stats": true
+    },
+    {
+      "schema": "public",
+      "name": "products",
+      "relkind": "r",
+      "reltuples": 200000,
+      "relpages": 1478,
+      "size_bytes": 18956288,
+      "relispartition": false,
+      "last_analyze": "2026-10-31T23:54:10.590995+00:00",
+      "last_autoanalyze": null,
+      "last_vacuum": "2026-10-31T23:54:10.366677+00:00",
+      "last_autovacuum": null,
+      "n_live_tup": 200000,
+      "n_dead_tup": 12500,
+      "n_mod_since_analyze": 0,
+      "has_stats": true
+    },
+    {
+      "schema": "public",
+      "name": "stores",
+      "relkind": "r",
+      "reltuples": 20000,
+      "relpages": 89,
+      "size_bytes": 1236992,
+      "relispartition": false,
+      "last_analyze": "2026-10-31T23:54:09.651704+00:00",
+      "last_autoanalyze": null,
+      "last_vacuum": "2026-10-31T23:54:09.583682+00:00",
+      "last_autovacuum": null,
+      "n_live_tup": 20000,
+      "n_dead_tup": 0,
+      "n_mod_since_analyze": 0,
+      "has_stats": true
+    },
+    {
+      "schema": "public",
+      "name": "brands",
+      "relkind": "r",
+      "reltuples": 5000,
+      "relpages": 28,
+      "size_bytes": 401408,
+      "relispartition": false,
+      "last_analyze": "2026-10-31T23:54:09.68309+00:00",
+      "last_autoanalyze": null,
+      "last_vacuum": "2026-10-31T23:54:09.654206+00:00",
+      "last_autovacuum": null,
+      "n_live_tup": 5000,
+      "n_dead_tup": 0,
+      "n_mod_since_analyze": 0,
+      "has_stats": true
+    }
+  ],
+  "column_stats": [
+    {
+      "schemaname": "public",
+      "tablename": "stores",
+      "attname": "id",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": -1,
+      "correlation": 1,
+      "mcv_count": 0
+    },
+    {
+      "schemaname": "public",
+      "tablename": "stores",
+      "attname": "region",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": 3,
+      "correlation": 0.35996398,
+      "mcv_count": 3
+    },
+    {
+      "schemaname": "public",
+      "tablename": "stores",
+      "attname": "active",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": 2,
+      "correlation": 0.90485746,
+      "mcv_count": 2
+    },
+    {
+      "schemaname": "public",
+      "tablename": "brands",
+      "attname": "id",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": -1,
+      "correlation": 1,
+      "mcv_count": 0
+    },
+    {
+      "schemaname": "public",
+      "tablename": "brands",
+      "attname": "code",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": -1,
+      "correlation": 0.33563375,
+      "mcv_count": 0
+    },
+    {
+      "schemaname": "public",
+      "tablename": "brand_assignments",
+      "attname": "id",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": -1,
+      "correlation": 1,
+      "mcv_count": 0
+    },
+    {
+      "schemaname": "public",
+      "tablename": "brand_assignments",
+      "attname": "store_id",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": 19972,
+      "correlation": 0.008751156,
+      "mcv_count": 4
+    },
+    {
+      "schemaname": "public",
+      "tablename": "brand_assignments",
+      "attname": "brand_id",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": 5000,
+      "correlation": -0.0026875064,
+      "mcv_count": 11
+    },
+    {
+      "schemaname": "public",
+      "tablename": "brand_assignments",
+      "attname": "is_current",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": 2,
+      "correlation": 0.5018525,
+      "mcv_count": 2
+    },
+    {
+      "schemaname": "public",
+      "tablename": "brand_assignments",
+      "attname": "valid_from",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": 2000,
+      "correlation": 0.004706037,
+      "mcv_count": 13
+    },
+    {
+      "schemaname": "public",
+      "tablename": "products",
+      "attname": "id",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": -1,
+      "correlation": 1,
+      "mcv_count": 0
+    },
+    {
+      "schemaname": "public",
+      "tablename": "products",
+      "attname": "brand_code",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": 5439,
+      "correlation": 0.00807388,
+      "mcv_count": 22
+    },
+    {
+      "schemaname": "public",
+      "tablename": "products",
+      "attname": "status",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": 2,
+      "correlation": 0.9497104,
+      "mcv_count": 2
+    },
+    {
+      "schemaname": "public",
+      "tablename": "products",
+      "attname": "updated_at",
+      "inherited": false,
+      "null_frac": 0,
+      "n_distinct": 1,
+      "correlation": 1,
+      "mcv_count": 1
+    }
+  ],
+  "column_targets": [],
+  "ext_stats": []
+}

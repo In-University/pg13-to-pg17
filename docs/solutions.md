@@ -69,7 +69,14 @@ ROLLBACK;
 | `CTE Scan on current_brand_code cbc (… rows=379670 width=32)` | Đầu vào để tính ngưỡng: rows × (32 + 24) |
 | `Query Identifier: 8512646466599369567` | Khoá cho hint table (Mục 3.1) |
 
-Tính ngưỡng tự động và sinh sẵn SQL khắc phục:
+Nếu kết nối được cả PG13 (instance restore từ backup trước upgrade) lẫn PG17 bằng `psql`, một lệnh làm hết các việc trên. Nó chạy `EXPLAIN` ở hai bên **bằng role của ứng dụng**, liệt kê các tham số khác nhau có ảnh hưởng tới plan của chính câu này (kể cả nguồn của giá trị: mặc định, flag, `ALTER ROLE`, client), tính quyết định hash ở hai bên và sinh runbook ([`pgdoctor.md` Mục 1.2](pgdoctor.md#12-chạy-trực-tiếp-trên-hai-server-run-capture-qdiff-từ-030)):
+
+```bash
+python .claude/skills/pgdoctor/pgdoctor_cli.py run --old-dsn "<pg13>" --new-dsn "<pg17>" --query-file q.sql \
+       --app-name <application_name của job> --analyze old --out-dir run1
+```
+
+Tính ngưỡng tự động và sinh sẵn SQL khắc phục từ file plan:
 
 ```bash
 python .claude/skills/pgdoctor/pgdoctor_cli.py remedy --plan q.pg17.json \

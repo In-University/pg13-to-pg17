@@ -1,0 +1,35 @@
+
+== Cấu hình hiệu lực khi chạy câu này: PG13 → PG17
+  PG13: PostgreSQL 13.23 (Debian 13.23-1.pgdg13+1) · user=app_batch db=lab4 app=batch-job · EXPLAIN ANALYZE
+  PG17: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) · user=app_batch db=lab4 app=batch-job · EXPLAIN (không ANALYZE)
+  Kết luận:
+    - Khác do mặc định đổi theo phiên bản (không ai cấu hình): hash_mem_multiplier 1 → 2.
+    - Các tham số then chốt giống nhau ở hai bản: work_mem.
+    - SubPlan 2: PG17 có ngân sách bộ nhớ BẰNG hoặc LỚN HƠN PG13 (8.0 MB so với 4.0 MB) nhưng ước lượng subquery tăng từ 4 754 lên 381 797 dòng → nguyên nhân là ƯỚC LƯỢNG của planner, không phải config.
+  Quyết định hash của SubPlan (tính bằng giá trị thật của session):
+    - PG13 SubPlan 2: ước lượng 4 754 dòng × 56 B = 260 kB ≤ work_mem 4MB × hash_mem_multiplier 1 = 4.0 MB → được hash · plan: hashed SubPlan
+    - PG17 SubPlan 2: ước lượng 381 797 dòng × 56 B = 20.4 MB > work_mem 4MB × hash_mem_multiplier 2 = 8.0 MB → KHÔNG hash · plan: SubPlan không hash · cần work_mem ≥ 10440kB hoặc hash_mem_multiplier ≥ 5.10
+  Tham số then chốt (in cả khi giống nhau):
+    hash_mem_multiplier          1 (default)                    2 (default)                    KHÁC  ← PLAN-SUBPLAN-NOHASH, CMP-SUBPLAN-HASH-LOST
+    work_mem                     4MB (command line)             4MB (command line)             giống  ← PLAN-SUBPLAN-NOHASH, CMP-SUBPLAN-HASH-LOST
+  Khác biệt: 1 then chốt · 0 liên quan node trong plan · 0 planner chung · 10 khác (chỉ trong report)
+    [critical] hash_mem_multiplier              1 (default)                    → 2 (default)                     (mặc định đổi theo phiên bản)
+  EXPLAIN (SETTINGS) – chỉ in tham số khác mặc định: PG13: {'effective_cache_size': '1GB', 'random_page_cost': '1.1'} · PG17: {'effective_cache_size': '1GB', 'random_page_cost': '1.1'}
+pgdoctor 0.3.0: critical=1, high=1, medium=1, low=4, info=2
+  [case4_update] PG13: 4.05 s  PG17: -
+  - CRITICAL CMP-SUBPLAN-HASH-LOST    case4_update             cmp   SubPlan 2: bản cũ dùng hashed SubPlan, bản mới duyệt danh sách cho từng dòng (ước lượng 4754 → 381.8k dòng)
+  - HIGH     PLAN-SUBPLAN-NOHASH      case4_update             PG17  SubPlan 2 (NOT IN/= ANY) không được hash – ước lượng ~483.74M phép so sánh
+  - MEDIUM   QCFG-DIFF                hash_mem_multiplier      cmp   Khi chạy câu này: hash_mem_multiplier = 1 (PG13) → 2 (PG17) – do mặc định đổi theo phiên bản
+  - LOW      PLAN-CTE-COST            case4_update             PG13  CTE current_brand_code: thân CTE chiếm 2.61 s (64% tổng) → nếu chậm, tối ưu join/scan bên trong CTE
+  - LOW      PLAN-MISEST              case4_update             PG13  CTE Scan on current_brand_code cbc: ước lượng 4754 dòng nhưng thực tế 400.0k (thiếu 84×)
+  - LOW      CMP-EST-SHIFT            case4_update             cmp   CTE Scan on current_brand_code cbc: ước lượng đổi 80× giữa hai bản (cũ 4754 → mới 381.8k)
+  - LOW      CMP-SETTINGS             case4_update             cmp   1 tham số khác nhau trong EXPLAIN (SETTINGS)
+  - INFO     PLAN-JIT                 case4_update             PG17  JIT sẽ được dùng với inlining/optimization (34 functions) – tổng cost 56.88M vượt ngưỡng jit_*_above_cost
+  - INFO     QCFG-VERDICT             kết luận config          cmp   SubPlan 2: PG17 có ngân sách bộ nhớ BẰNG hoặc LỚN HƠN PG13 (8.0 MB so với 4.0 MB) nhưng ước lượng subquery tăng từ 4 754 lên 381 797 dòng → nguyên nhân là ƯỚC LƯỢNG của planner, không phải config.
+  Khắc phục [case4_update] (thứ tự ưu tiên):
+    1. [không sửa code] pg_hint_plan hint table: Set(hash_mem_multiplier) CHỈ cho câu lệnh này – phạm vi: 1 câu lệnh (khoá query_id), chỉ application_name='batch-job'
+    2. [không sửa code] ALTER ROLE … IN DATABASE … SET hash_mem_multiplier (không cần extension) – phạm vi: mọi câu của role app_batch trong DB lab4
+    3. [không sửa code] ALTER ROLE … IN DATABASE … SET work_mem – phạm vi: mọi câu của role app_batch trong DB lab4
+    4. [không sửa code] Flag instance hash_mem_multiplier / work_mem – phạm vi: toàn instance
+Report: lab/results/run/report.html
+Runbook SQL: lab/results/run/remedies.sql

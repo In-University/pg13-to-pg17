@@ -18,12 +18,14 @@ lab/                                 Lab docker: PG13 → pg_upgrade thật → 
   docker-compose.yml  init/  scripts/repro.sh
   sql/case1..4*.sql                  Các case tái hiện
   remedies/                          Lab kiểm chứng giải pháp không sửa code (PG13/PG17 + pg_hint_plan), script E0..E8
-  results/                           Plan nguyên văn đã chụp + report pgdoctor của 4 case; results/remedies/ = kết quả E0..E8
+  results/                           Plan nguyên văn đã chụp + report pgdoctor của 4 case; results/remedies/ = kết quả E0..E9;
+                                     results/run/ = output của `pgdoctor run` trên lab (cấu hình hiệu lực PG13 vs PG17)
   fixtures/                          Script tạo dữ liệu mẫu cho tests/
   README.md                          Cách chạy lab, cách dump dữ liệu thật từ Cloud SQL
 
 tests/                               Test hồi quy của pgdoctor
-  test_pgdoctor.py  samples/         Plan thật chụp từ lab, snapshot collector, dữ liệu pg_stat_statements giả lập
+  test_pgdoctor.py  test_remedy.py  test_run.py  fake_psql.py
+  samples/                           Plan thật chụp từ lab, snapshot collector, output 'pgdoctor capture' (samples/run/), dữ liệu giả lập
 ```
 
 ## Bắt đầu nhanh
@@ -31,6 +33,10 @@ tests/                               Test hồi quy của pgdoctor
 ```bash
 # Phân tích plan của câu thật (PG13 vs PG17)
 python .claude/skills/pgdoctor/pgdoctor_cli.py analyze --old-plan q.pg13.json --new-plan q.pg17.json -o report.html
+
+# Chạy câu lệnh trên CẢ HAI server (qua psql) và liệt kê khác biệt cấu hình hiệu lực + plan + thống kê của chính câu đó
+python .claude/skills/pgdoctor/pgdoctor_cli.py run --old-dsn "<pg13>" --new-dsn "<pg17>" --query-file q.sql \
+       --app-name <application_name> --analyze old --out-dir run1        # -> run1/report.html, run1/remedies.sql
 
 # Sinh runbook khắc phục (ưu tiên không sửa code) cho câu chậm trên PG17 – EXPLAIN là đủ, không cần chờ 2 giờ
 python .claude/skills/pgdoctor/pgdoctor_cli.py remedy --plan q.pg17.json --app-role <role> --app-db <db> -o fix.sql

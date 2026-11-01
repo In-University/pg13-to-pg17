@@ -284,6 +284,26 @@ _R: List[Rule] = [
          "Bản mới có kỹ thuật planner mới, mặc định bật: enable_memoize (14), enable_async_append (14), "
          "enable_presorted_aggregate (16), enable_group_by_reordering (17)… Đây là các công tắc để chẩn đoán regression.",
          "Thử tắt từng công tắc trong transaction thử nghiệm với query bị chậm.", [], ["pg17_rel"]),
+    Rule("QCFG-DIFF", "Cấu hình hiệu lực khi chạy CHÍNH câu lệnh này khác nhau", "settings",
+         "So pg_settings lấy NGAY trong session chạy câu lệnh trên mỗi server (đã gồm ALTER ROLE/DATABASE … SET, tham số "
+         "kết nối của client), chỉ giữ tham số điều khiển các node có trong plan. 'critical' = tham số nằm trong cơ chế của "
+         "một finding (vd. work_mem/hash_mem_multiplier với NOT IN mất hashed). EXPLAIN (SETTINGS) không đủ: nó chỉ in tham "
+         "số khác mặc định, nên mặc định đổi theo phiên bản (hash_mem_multiplier 1.0 → 2.0 từ PG15) không bao giờ hiện ra.",
+         "Đồng bộ tham số khác biệt không chủ đích (Cloud SQL flag, ALTER ROLE … IN DATABASE … SET); nếu tham số then chốt "
+         "giống nhau mà plan vẫn khác thì nguyên nhân nằm ở planner/thống kê.",
+         ["pgdoctor run --old-dsn … --new-dsn … --query-file q.sql",
+          "SELECT name, setting, source FROM pg_settings WHERE name IN ('work_mem','hash_mem_multiplier');"],
+         ["hash_mem", "alter_role", "cloudsql_flags"]),
+    Rule("QCFG-NEW-GUC", "Plan bản mới dùng tính năng planner không có ở bản cũ", "settings",
+         "Plan của bản mới có node chỉ tồn tại từ phiên bản sau (Memoize – PG14, Incremental Sort – PG13, GROUP BY "
+         "reordering – PG17…) và tham số bật/tắt nó đang bật.",
+         "Thử tắt tham số đó trong transaction thử nghiệm; nếu nhanh lại thì tắt riêng cho câu lệnh (hint table Set(…)) "
+         "hoặc cho role.", ["BEGIN; SET LOCAL enable_memoize = off; EXPLAIN (ANALYZE) …; ROLLBACK;"],
+         ["memoize", "groupby", "pg17_rel"]),
+    Rule("QCFG-VERDICT", "Kết luận: config hay ước lượng gây khác biệt", "settings",
+         "Với SubPlan NOT IN, tool tính quyết định hash ở hai bên bằng giá trị THẬT của session: ước lượng × (width+24) so "
+         "với work_mem × hash_mem_multiplier. Nếu bản mới có ngân sách bộ nhớ bằng/lớn hơn mà vẫn không hash thì nguyên nhân "
+         "là ước lượng của planner, không phải config.", "Xem phần Khắc phục.", [], ["subselect_src", "cte_stats_pganalyze"]),
     # ---------------------------------------------------------------- health
     Rule("HEALTH-NEVER-ANALYZED", "Bảng chưa có thống kê / chưa từng ANALYZE", "health",
          "reltuples < 0 hoặc không có dòng nào trong pg_stats: planner dùng heuristic mặc định. Sau pg_upgrade mọi bảng ở trạng thái này "

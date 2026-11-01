@@ -19,6 +19,8 @@ bash setup.sh                       # nạp dữ liệu (~1 phút), tạo extens
 bash run_remedies.sh                # E0..E9 (~10 phút; E9 tự nạp CASE 3 vào DB lab)
 bash run_remedies.sh slow           # plan xấu của PG17 chạy tới khi xong (lâu)
 bash run_remedies.sh e3 e3b         # chỉ chạy một vài bước
+bash run_pgdoctor.sh                # pgdoctor run: EXPLAIN hai bên + so sánh cấu hình hiệu lực (→ ../results/run/live/)
+bash run_pgdoctor.sh role-hm8       # như trên, sau khi ALTER ROLE … SET hash_mem_multiplier = 8 trên PG17 (tự RESET)
 docker compose down -v              # dọn
 ```
 
@@ -41,6 +43,7 @@ Kết quả được ghi vào `../results/remedies/`.
 | E7 | Viết lại `NOT EXISTS` (cần build lại) | PG17 Hash Anti Join 4.4 s, null-safe 4.2 s. Số dòng UPDATE giống hệt (2500) | `E7_*` |
 | E8 | `pg_stat_activity.query_id` của câu UPDATE đang chạy (role `app_batch`, `batch-job`) | `8512646466599369567`, trùng `Query Identifier` của `EXPLAIN (VERBOSE)`. Dùng được làm khoá hint table khi câu đang treo | `E8_*` |
 | E9 | CASE 3 (Nested Loop quét lại CTE, DB `lab`): 3 dạng hint trong hint table | Không hint: 100 s. `HashJoin(cu a b)`: **95 s, không đủ** (hint được "used" nhưng planner dời Nested Loop xuống cặp `{a, b}`). `NoNestLoop(a b) NoNestLoop(b cu) NoNestLoop(a b cu)`: **0.84 s**. `Set(enable_nestloop off)`: 1.0 s | `E9_*` |
+| E10 | `pgdoctor run` (role `app_batch`, `batch-job`, 4.7 s cho cả hai bên) | Chỉ `hash_mem_multiplier` khác (1 → 2, mặc định đổi theo phiên bản), `work_mem` giống nhau. PG17 có ngân sách 8 MB > 4 MB của PG13 nhưng ước lượng 4 754 → 381 797 dòng nên vẫn không hash → tool kết luận nguyên nhân là ước lượng. Sau `ALTER ROLE … SET hash_mem_multiplier = 8`: tool báo `8 (database user)`, PG17 hashed 3.9 s | `../results/run/` |
 
 ## Bẫy đã gặp
 

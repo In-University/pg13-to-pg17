@@ -178,6 +178,110 @@ def _tree(plan: Plan, prefix: str, other_prefix: str, mapping: Dict[int, int], f
     return "".join(rows)
 
 
+_REL_VI = {"critical": ("then chốt", "critical"), "plan": ("node trong plan", "high"), "planner": ("planner chung", "medium"),
+           "other": ("khác", "info")}
+
+
+def _src(v: str) -> str:
+    return f" <span class='muted'>({E(v)})</span>" if v else ""
+
+
+def _query_config_section(ctx: Dict[str, Any]) -> str:
+    """Effective configuration of the session that ran the statement on each server (pgdoctor run / qdiff)."""
+    d = ctx["query_config"]
+    lo, ln = ctx["labels"]
+    caps = ctx.get("captures") or {}
+    o: List[str] = ["<h2 id='qconfig'>Cấu hình hiệu lực khi chạy chính câu lệnh này</h2>",
+                    "<div class='legend'>Lấy từ pg_settings NGAY trong session chạy câu lệnh trên mỗi server (đã gồm ALTER ROLE / "
+                    "ALTER DATABASE … SET và tham số kết nối của client). Chỉ giữ tham số điều khiển planner/executor; xếp theo "
+                    "mức liên quan tới plan.</div>"]
+    if caps:
+        o.append("<table><tr><th></th><th>Phiên bản</th><th>Session</th><th>Chế độ</th><th>Kết nối</th></tr>")
+        for lbl in (lo, ln):
+            c = caps.get(lbl)
+            if not c:
+                continue
+            m = c["meta"]
+            mode = "EXPLAIN ANALYZE" if c.get("analyzed") else "EXPLAIN (không ANALYZE)"
+            if m.get("analyze_error"):
+                mode += f" · ANALYZE lỗi: {m['analyze_error']}"
+            if m.get("params"):
+                mode += f" · PREPARE/EXECUTE ({len(m['params'])} tham số{', generic plan' if m.get('generic_plan') else ''})"
+            o.append(f"<tr><td><b>{E(lbl)}</b></td><td class='mono'>{E(str(m.get('server_version', '')).split(' on ')[0])}</td>"
+                     f"<td class='mono'>user={E(str(m.get('current_user')))} db={E(str(m.get('database')))} "
+                     f"application_name={E(str(m.get('application_name')))}</td><td>{E(mode)}</td>"
+                     f"<td class='mono'>{E(m.get('dsn') or '')}{(' · options ' + E(m['client_options'])) if m.get('client_options') else ''}</td></tr>")
+        o.append("</table>")
+    o.append("<h3>Kết luận</h3><ul>" + "".join(f"<li>{E(v)}</li>" for v in d["verdict"]) + "</ul>")
+    if d["thresholds"]:
+        o.append("<h3>Quyết định hash của SubPlan (NOT IN / = ANY)</h3><ul>" +
+                 "".join(f"<li class='mono'>{E(t['text'])}</li>" for t in d["thresholds"]) + "</ul>")
+    if d["key"]:
+        o.append(f"<h3>Tham số then chốt của plan này (in cả khi giống nhau)</h3><table><tr><th>Tham số</th><th>{E(lo)}</th>"
+                 f"<th>{E(ln)}</th><th></th><th>Liên quan</th></tr>")
+        for k in d["key"]:
+            o.append(f"<tr><td class='mono'>{E(k['name'])}</td><td class='mono'>{E(k['old'])}{_src(k['old_src'])}</td>"
+                     f"<td class='mono'>{E(k['new'])}{_src(k['new_src'])}</td>"
+                     f"<td>{'giống' if k['same'] else '<b>KHÁC</b>'}</td><td>{E(', '.join(k['rules']))}<br>"
+                     f"<span class='muted'>{E(k['why'])}</span></td></tr>")
+        o.append("</table>")
+
+    def table(rows) -> str:
+        t = [f"<table><tr><th>Mức</th><th>Tham số</th><th>{E(lo)}</th><th>{E(ln)}</th><th>Vì sao liên quan</th></tr>"]
+        for r in rows:
+            vi, cls = _REL_VI[r["relevance"]]
+            flag = {"changed": "", "only_new": f"chỉ có ở {ln}", "only_old": f"chỉ có ở {lo}"}[r["kind"]]
+            if r["default_changed"]:
+                flag = "mặc định đổi theo phiên bản"
+            note = r["why"] + (f" · Node: {', '.join(r['nodes'][:5])}" if r["nodes"] else "") + \
+                (f" · Finding: {', '.join(r['rules'])}" if r["rules"] else "")
+            t.append(f"<tr><td><span class='sev {cls}'>{E(vi)}</span></td><td class='mono'>{E(r['name'])}"
+                     f"{('<br><span class=muted>' + E(flag) + '</span>') if flag else ''}</td>"
+                     f"<td class='mono'>{E(r['old'])}{_src(r['old_src'])}</td><td class='mono'>{E(r['new'])}{_src(r['new_src'])}</td>"
+                     f"<td>{E(note)}</td></tr>")
+        t.append("</table>")
+        return "".join(t)
+    main_rows = [r for r in d["rows"] if r["relevance"] != "other"]
+    other_rows = [r for r in d["rows"] if r["relevance"] == "other"]
+    o.append(f"<h3>Khác biệt liên quan tới câu lệnh <span class='muted'>({len(main_rows)})</span></h3>")
+    o.append(table(main_rows) if main_rows else "<p class='muted'>Không có khác biệt nào ở tham số liên quan tới plan này.</p>")
+    if other_rows:
+        o.append(f"<details><summary>Khác biệt khác trong nhóm planner/executor – không điều khiển node nào của hai plan "
+                 f"({len(other_rows)})</summary>{table(other_rows)}</details>")
+    es = d["explain_settings"]
+    o.append("<h3>EXPLAIN (SETTINGS)</h3><div class='legend'>EXPLAIN chỉ in tham số khác giá trị mặc định của chính phiên bản "
+             "đó, nên mặc định đổi theo phiên bản (vd. hash_mem_multiplier 1 → 2 từ PG15) KHÔNG hiện ở đây – vì vậy cần bảng "
+             "ở trên.</div><ul>" + "".join(f"<li><b>{E(l)}</b>: <span class='mono'>{E(json.dumps(es.get(l) or {}, ensure_ascii=False))}"
+                                            f"</span></li>" for l in (lo, ln)) + "</ul>")
+    if caps:
+        rs = []
+        for lbl in (lo, ln):
+            c = caps.get(lbl) or {}
+            for e in c.get("role_settings") or []:
+                rs.append(f"<li><b>{E(lbl)}</b> role={E(str(e.get('role')))} database={E(str(e.get('database')))}: "
+                          f"<span class='mono'>{E(', '.join(e.get('config') or []))}</span></li>")
+        o.append("<h3>ALTER ROLE / ALTER DATABASE … SET đang áp dụng cho session</h3>" +
+                 ("<ul>" + "".join(rs) + "</ul>" if rs else "<p class='muted'>Không có.</p>"))
+        hx = []
+        for lbl in (lo, ln):
+            ex = (caps.get(lbl) or {}).get("extras") or {}
+            if ex.get("query_id") is not None:
+                hx.append(f"<li><b>{E(lbl)}</b> query_id <span class='mono'>{E(str(ex['query_id']))}</span></li>")
+            if ex.get("has_hint_table"):
+                hs = ex.get("hints") or []
+                hx.append(f"<li><b>{E(lbl)}</b> pg_hint_plan hint table: {len(hs)} dòng khớp" +
+                          "".join(f"<br><span class='mono'>{E(json.dumps(h, ensure_ascii=False, default=str))}</span>" for h in hs[:10]) + "</li>")
+            for st in ex.get("statements") or []:
+                hx.append(f"<li><b>{E(lbl)}</b> pg_stat_statements: calls={E(str(st.get('calls')))}, "
+                          f"mean={fmt_ms(st.get('mean_exec_time'))}, max={fmt_ms(st.get('max_exec_time'))}, "
+                          f"temp_blks_read={E(str(st.get('temp_blks_read')))}</li>")
+        if hx:
+            o.append("<h3>query_id · hint table · pg_stat_statements</h3><ul>" + "".join(hx) + "</ul>"
+                     "<div class='legend'>Câu gửi bằng literal và câu gửi bằng tham số $1 (JDBC) có query_id KHÁC nhau – "
+                     "hint table phải dùng query_id của câu ứng dụng thật gửi.</div>")
+    return "".join(o)
+
+
 def render(ctx: Dict[str, Any]) -> str:
     """ctx keys: queries[list of {name, old, new, cmp, findings}], findings, settings_table, statements_rows,
     labels(old,new), inputs"""
@@ -194,6 +298,8 @@ def render(ctx: Dict[str, Any]) -> str:
     nav = ["<a href='#summary'>Tóm tắt</a>", "<a href='#findings'>Findings</a>"]
     if ctx["queries"]:
         nav.append("<a href='#plans'>So sánh plan</a>")
+    if ctx.get("query_config") is not None:
+        nav.insert(2, "<a href='#qconfig'>Cấu hình khi chạy</a>")
     if ctx.get("settings_table") is not None:
         nav.append("<a href='#settings'>Cấu hình</a>")
     if ctx.get("statements_rows") is not None:
@@ -229,6 +335,9 @@ def render(ctx: Dict[str, Any]) -> str:
         for f in top:
             out.append(f"<li>{_sev(f.severity)} <b>{E(f.message)}</b> <span class='rid'>{E(f.rule)} · {E(f.subject)}</span></li>")
         out.append("</ol>")
+
+    if ctx.get("query_config") is not None:
+        out.append(_query_config_section(ctx))
 
     # --------------------------------------------------------------- findings
     out.append("<h2 id='findings'>Findings <span class='muted' style='font-size:13px'>"
@@ -320,7 +429,9 @@ def render(ctx: Dict[str, Any]) -> str:
         out.append(f"<tr><td class='mono'>{E(r.id)}{('<br><span class=muted>PG' + E(r.since) + '+</span>') if r.since else ''}</td>"
                    f"<td><b>{E(r.title)}</b></td><td>{E(r.why)}</td><td>{refs}</td></tr>")
     out.append("</table></main>")
-    out.append(f"<footer>Inputs: {E(', '.join(ctx.get('inputs', [])))}<br>Tool chỉ đọc các file đầu vào; không kết nối database. "
+    how = ("Plan và cấu hình được lấy trực tiếp bằng psql trong session chạy câu lệnh (pgdoctor run/capture), câu lệnh chạy "
+           "trong BEGIN … ROLLBACK. " if ctx.get("captures") else "Tool chỉ đọc các file đầu vào; không kết nối database. ")
+    out.append(f"<footer>Inputs: {E(', '.join(ctx.get('inputs', [])))}<br>{how}"
                f"Mọi finding là heuristic – hãy xác nhận bằng EXPLAIN (ANALYZE, BUFFERS) và thử nghiệm SET LOCAL trong transaction.</footer>")
     data = json.dumps([f.to_dict() for f in findings], ensure_ascii=False).replace("</", "<\\/")
     out.append(f"<script type='application/json' id='findings-data'>{data}</script><script>{JS}</script></body></html>")

@@ -1,0 +1,422 @@
+{
+  "labels": [
+    "PG13",
+    "PG17"
+  ],
+  "findings": [
+    {
+      "rule": "CMP-SUBPLAN-HASH-LOST",
+      "severity": "critical",
+      "scope": "compare",
+      "subject": "case4_update",
+      "message": "SubPlan 2: bản cũ dùng hashed SubPlan, bản mới duyệt danh sách cho từng dòng (ước lượng 4754 → 381.8k dòng)",
+      "evidence": [
+        "Bản cũ: SubPlan 2 hashed – ước lượng 4754 dòng (~260kB), thực tế 400.0k",
+        "Bản mới: SubPlan 2 KHÔNG hashed – ước lượng 381.8k dòng (~20.4MB)",
+        "Bản cũ  → Filter: (NOT (hashed SubPlan 2))",
+        "Bản mới → Filter: (NOT (ANY (p.brand_code = (SubPlan 2).col1)))",
+        "Ngưỡng hash bản mới ≈ 8.0MB (work_mem × hash_mem_multiplier từ EXPLAIN SETTINGS)"
+      ],
+      "side": "both",
+      "node_ids": [
+        9,
+        8
+      ],
+      "old_node_ids": [
+        9
+      ],
+      "data": {},
+      "score": 100
+    },
+    {
+      "rule": "PLAN-SUBPLAN-NOHASH",
+      "severity": "high",
+      "scope": "plan",
+      "subject": "case4_update",
+      "message": "SubPlan 2 (NOT IN/= ANY) không được hash – ước lượng ~483.74M phép so sánh",
+      "evidence": [
+        "Ước lượng ≈ 2534 dòng ngoài × 381.8k / 2 ≈ 483.74M phép so sánh",
+        "Biểu thức: Filter: (NOT (ANY (p.brand_code = (SubPlan 2).col1)))",
+        "SubPlan ước lượng 381.8k dòng × 32 byte ≈ 20.4MB khi hash",
+        "Ngưỡng hash ≈ work_mem × hash_mem_multiplier = 8.0MB"
+      ],
+      "side": "new",
+      "node_ids": [
+        9,
+        8
+      ],
+      "old_node_ids": [],
+      "data": {},
+      "score": 8.684609126451397
+    },
+    {
+      "rule": "QCFG-DIFF",
+      "severity": "medium",
+      "scope": "settings",
+      "subject": "hash_mem_multiplier",
+      "message": "Khi chạy câu này: hash_mem_multiplier = 1 (PG13) → 2 (PG17) – do mặc định đổi theo phiên bản",
+      "evidence": [
+        "Mặc định 1.0 (PG13–14) → 2.0 (PG15+). Hash join/agg được dùng nhiều RAM hơn → cost model ưu tiên hash.",
+        "source: default → default (mặc định đổi theo phiên bản)",
+        "Liên quan finding: PLAN-SUBPLAN-NOHASH, CMP-SUBPLAN-HASH-LOST",
+        "Node trong plan: Hash Join (PG13), Hash (PG13), SubPlan (hashed) (PG13), Hash Join (PG17), Hash (PG17), SubPlan (không hash) (PG17)"
+      ],
+      "side": "both",
+      "node_ids": [],
+      "old_node_ids": [],
+      "data": {
+        "relevance": "critical",
+        "default_changed": true,
+        "old_src": "default",
+        "new_src": "default"
+      },
+      "score": 0.0
+    },
+    {
+      "rule": "PLAN-CTE-COST",
+      "severity": "low",
+      "scope": "plan",
+      "subject": "case4_update",
+      "message": "CTE current_brand_code: thân CTE chiếm 2.61 s (64% tổng) → nếu chậm, tối ưu join/scan bên trong CTE",
+      "evidence": [
+        "Thân CTE (chạy 1 lần): 2.61 s (64% tổng), 1.00M dòng",
+        "1 CTE Scan, tổng 1 lần quét, thời gian gộp 3.66 s",
+        "Đọc + lọc kết quả CTE (1 lần): ≈ 1.05 s (26% tổng)",
+        "CTE Scan nặng nhất: CTE Scan on current_brand_code cbc – 1 loop × ~400.0k dòng, ngữ cảnh SubPlan 2",
+        "So plan của thân CTE giữa hai bản (join order/method, index, ước lượng) – có thể chạy riêng SELECT của CTE"
+      ],
+      "side": "old",
+      "node_ids": [
+        1,
+        9
+      ],
+      "old_node_ids": [],
+      "data": {
+        "cte": "current_brand_code",
+        "body_ms": 2612.072,
+        "reread_ms": 1052.179,
+        "scan_loops": 1.0
+      },
+      "score": 6.446400961504053
+    },
+    {
+      "rule": "PLAN-MISEST",
+      "severity": "low",
+      "scope": "plan",
+      "subject": "case4_update",
+      "message": "CTE Scan on current_brand_code cbc: ước lượng 4754 dòng nhưng thực tế 400.0k (thiếu 84×)",
+      "evidence": [
+        "Ước lượng: 4754 dòng/loop; thực tế: 400.0k dòng/loop × 1 loop",
+        "Ngữ cảnh: SubPlan 2",
+        "Filter: (cbc.region = 'VN'::text)"
+      ],
+      "side": "old",
+      "node_ids": [
+        9
+      ],
+      "old_node_ids": [],
+      "data": {
+        "qerror": 84.13967185527976
+      },
+      "score": 1.9250008139358008
+    },
+    {
+      "rule": "CMP-EST-SHIFT",
+      "severity": "low",
+      "scope": "compare",
+      "subject": "case4_update",
+      "message": "CTE Scan on current_brand_code cbc: ước lượng đổi 80× giữa hai bản (cũ 4754 → mới 381.8k)",
+      "evidence": [
+        "Ước lượng bản cũ: 4754 dòng/loop; bản mới: 381.8k dòng/loop",
+        "Thực tế: 400.0k dòng/loop → bản MỚI gần đúng hơn (sai số cũ 84×, mới 1×)",
+        "Node này đọc từ CTE: PG17 lấy stats cột CTE từ bảng gốc (f7816aec2) – stats của toàn bảng, không tính điều kiện lọc bên trong CTE."
+      ],
+      "side": "both",
+      "node_ids": [
+        9
+      ],
+      "old_node_ids": [
+        9
+      ],
+      "data": {
+        "closer": "new",
+        "cte": true
+      },
+      "score": 1.9047733341757944
+    },
+    {
+      "rule": "CMP-SETTINGS",
+      "severity": "low",
+      "scope": "compare",
+      "subject": "case4_update",
+      "message": "1 tham số khác nhau trong EXPLAIN (SETTINGS)",
+      "evidence": [
+        "hash_mem_multiplier: 1 → 2"
+      ],
+      "side": "both",
+      "node_ids": [],
+      "old_node_ids": [],
+      "data": {},
+      "score": 0.0
+    },
+    {
+      "rule": "PLAN-JIT",
+      "severity": "info",
+      "scope": "plan",
+      "subject": "case4_update",
+      "message": "JIT sẽ được dùng với inlining/optimization (34 functions) – tổng cost 56.88M vượt ngưỡng jit_*_above_cost",
+      "evidence": [],
+      "side": "new",
+      "node_ids": [],
+      "old_node_ids": [],
+      "data": {},
+      "score": 0.0
+    },
+    {
+      "rule": "QCFG-VERDICT",
+      "severity": "info",
+      "scope": "settings",
+      "subject": "kết luận config",
+      "message": "SubPlan 2: PG17 có ngân sách bộ nhớ BẰNG hoặc LỚN HƠN PG13 (8.0 MB so với 4.0 MB) nhưng ước lượng subquery tăng từ 4 754 lên 381 797 dòng → nguyên nhân là ƯỚC LƯỢNG của planner, không phải config.",
+      "evidence": [],
+      "side": "both",
+      "node_ids": [],
+      "old_node_ids": [],
+      "data": {},
+      "score": 0.0
+    }
+  ],
+  "query_config": {
+    "rows": [
+      {
+        "name": "hash_mem_multiplier",
+        "kind": "changed",
+        "relevance": "critical",
+        "default_changed": true,
+        "old": "1",
+        "new": "2",
+        "old_src": "default",
+        "new_src": "default",
+        "category": "Resource Usage / Memory",
+        "why": "Mặc định 1.0 (PG13–14) → 2.0 (PG15+). Hash join/agg được dùng nhiều RAM hơn → cost model ưu tiên hash.",
+        "nodes": [
+          "Hash Join (PG13)",
+          "Hash (PG13)",
+          "SubPlan (hashed) (PG13)",
+          "Hash Join (PG17)",
+          "Hash (PG17)",
+          "SubPlan (không hash) (PG17)"
+        ],
+        "rules": [
+          "PLAN-SUBPLAN-NOHASH",
+          "CMP-SUBPLAN-HASH-LOST"
+        ]
+      },
+      {
+        "name": "compute_query_id",
+        "kind": "only_new",
+        "relevance": "other",
+        "default_changed": false,
+        "old": "—",
+        "new": "on",
+        "old_src": "",
+        "new_src": "command line",
+        "category": "Statistics / Monitoring",
+        "why": "Cần để có query_id (pg_stat_statements, hint table của pg_hint_plan).",
+        "nodes": [],
+        "rules": []
+      },
+      {
+        "name": "enable_async_append",
+        "kind": "only_new",
+        "relevance": "other",
+        "default_changed": false,
+        "old": "—",
+        "new": "on",
+        "old_src": "",
+        "new_src": "default",
+        "category": "Query Tuning / Planner Method Configuration",
+        "why": "PG14 – async Append (FDW)",
+        "nodes": [],
+        "rules": []
+      },
+      {
+        "name": "enable_group_by_reordering",
+        "kind": "only_new",
+        "relevance": "other",
+        "default_changed": false,
+        "old": "—",
+        "new": "on",
+        "old_src": "",
+        "new_src": "default",
+        "category": "Query Tuning / Planner Method Configuration",
+        "why": "PG17 – đổi thứ tự GROUP BY theo sort order của node con",
+        "nodes": [],
+        "rules": []
+      },
+      {
+        "name": "enable_memoize",
+        "kind": "only_new",
+        "relevance": "other",
+        "default_changed": false,
+        "old": "—",
+        "new": "on",
+        "old_src": "",
+        "new_src": "default",
+        "category": "Query Tuning / Planner Method Configuration",
+        "why": "PG14 – Memoize cho Nested Loop",
+        "nodes": [],
+        "rules": []
+      },
+      {
+        "name": "enable_presorted_aggregate",
+        "kind": "only_new",
+        "relevance": "other",
+        "default_changed": false,
+        "old": "—",
+        "new": "on",
+        "old_src": "",
+        "new_src": "default",
+        "category": "Query Tuning / Planner Method Configuration",
+        "why": "PG16 – aggregate ORDER BY/DISTINCT dùng input đã sort",
+        "nodes": [],
+        "rules": []
+      },
+      {
+        "name": "file_extend_method",
+        "kind": "only_new",
+        "relevance": "other",
+        "default_changed": false,
+        "old": "—",
+        "new": "posix_fallocate",
+        "old_src": "",
+        "new_src": "default",
+        "category": "Resource Usage / Disk",
+        "why": "",
+        "nodes": [],
+        "rules": []
+      },
+      {
+        "name": "force_parallel_mode",
+        "kind": "only_old",
+        "relevance": "other",
+        "default_changed": false,
+        "old": "off",
+        "new": "—",
+        "old_src": "default",
+        "new_src": "",
+        "category": "Query Tuning / Other Planner Options",
+        "why": "",
+        "nodes": [],
+        "rules": []
+      },
+      {
+        "name": "io_combine_limit",
+        "kind": "only_new",
+        "relevance": "other",
+        "default_changed": false,
+        "old": "—",
+        "new": "128kB",
+        "old_src": "",
+        "new_src": "default",
+        "category": "Resource Usage / Asynchronous Behavior",
+        "why": "PG17: streaming I/O gộp đọc.",
+        "nodes": [],
+        "rules": []
+      },
+      {
+        "name": "old_snapshot_threshold",
+        "kind": "only_old",
+        "relevance": "other",
+        "default_changed": false,
+        "old": "-1min",
+        "new": "—",
+        "old_src": "default",
+        "new_src": "",
+        "category": "Resource Usage / Asynchronous Behavior",
+        "why": "",
+        "nodes": [],
+        "rules": []
+      },
+      {
+        "name": "recursive_worktable_factor",
+        "kind": "only_new",
+        "relevance": "other",
+        "default_changed": false,
+        "old": "—",
+        "new": "10",
+        "old_src": "",
+        "new_src": "default",
+        "category": "Query Tuning / Other Planner Options",
+        "why": "",
+        "nodes": [],
+        "rules": []
+      }
+    ],
+    "key": [
+      {
+        "name": "hash_mem_multiplier",
+        "old": "1",
+        "new": "2",
+        "old_src": "default",
+        "new_src": "default",
+        "same": false,
+        "rules": [
+          "PLAN-SUBPLAN-NOHASH",
+          "CMP-SUBPLAN-HASH-LOST"
+        ],
+        "why": "Mặc định 1.0 (PG13–14) → 2.0 (PG15+). Hash join/agg được dùng nhiều RAM hơn → cost model ưu tiên hash."
+      },
+      {
+        "name": "work_mem",
+        "old": "4MB",
+        "new": "4MB",
+        "old_src": "command line",
+        "new_src": "command line",
+        "same": true,
+        "rules": [
+          "PLAN-SUBPLAN-NOHASH",
+          "CMP-SUBPLAN-HASH-LOST"
+        ],
+        "why": "Bộ nhớ mỗi sort/hash; ảnh hưởng cost và tràn đĩa."
+      }
+    ],
+    "thresholds": [
+      {
+        "label": "PG13",
+        "subplan": "SubPlan 2",
+        "rows": 4754.0,
+        "need_bytes": 266224.0,
+        "limit_bytes": 4194304.0,
+        "fits": true,
+        "hashed": true,
+        "text": "PG13 SubPlan 2: ước lượng 4 754 dòng × 56 B = 260 kB ≤ work_mem 4MB × hash_mem_multiplier 1 = 4.0 MB → được hash · plan: hashed SubPlan"
+      },
+      {
+        "label": "PG17",
+        "subplan": "SubPlan 2",
+        "rows": 381797.0,
+        "need_bytes": 21380632.0,
+        "limit_bytes": 8388608.0,
+        "fits": false,
+        "hashed": false,
+        "text": "PG17 SubPlan 2: ước lượng 381 797 dòng × 56 B = 20.4 MB > work_mem 4MB × hash_mem_multiplier 2 = 8.0 MB → KHÔNG hash · plan: SubPlan không hash · cần work_mem ≥ 10440kB hoặc hash_mem_multiplier ≥ 5.10"
+      }
+    ],
+    "verdict": [
+      "Khác do mặc định đổi theo phiên bản (không ai cấu hình): hash_mem_multiplier 1 → 2.",
+      "Các tham số then chốt giống nhau ở hai bản: work_mem.",
+      "SubPlan 2: PG17 có ngân sách bộ nhớ BẰNG hoặc LỚN HƠN PG13 (8.0 MB so với 4.0 MB) nhưng ước lượng subquery tăng từ 4 754 lên 381 797 dòng → nguyên nhân là ƯỚC LƯỢNG của planner, không phải config."
+    ],
+    "explain_settings": {
+      "PG13": {
+        "effective_cache_size": "1GB",
+        "random_page_cost": "1.1"
+      },
+      "PG17": {
+        "effective_cache_size": "1GB",
+        "random_page_cost": "1.1"
+      }
+    }
+  }
+}

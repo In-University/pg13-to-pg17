@@ -1,0 +1,21 @@
+
+== Cấu hình hiệu lực khi chạy câu này: PG13 → PG17
+  PG13: PostgreSQL 13.23 (Debian 13.23-1.pgdg13+1) · user=app_batch db=lab4 app=batch-job · EXPLAIN ANALYZE
+  PG17: PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) · user=app_batch db=lab4 app=batch-job · EXPLAIN ANALYZE
+  Kết luận:
+    - Khác ở tham số điều khiển node có trong plan: hash_mem_multiplier 1 (default) → 8 (database user) – có giá trị đặt bằng ALTER ROLE/DATABASE … SET hoặc tham số kết nối.
+  Quyết định hash của SubPlan (tính bằng giá trị thật của session):
+    - PG13 SubPlan 2: ước lượng 4 754 dòng × 56 B = 260 kB ≤ work_mem 4MB × hash_mem_multiplier 1 = 4.0 MB → được hash · plan: hashed SubPlan
+    - PG17 SubPlan 2: ước lượng 381 797 dòng × 56 B = 20.4 MB ≤ work_mem 4MB × hash_mem_multiplier 8 = 32.0 MB → được hash · plan: hashed SubPlan
+  Khác biệt: 0 then chốt · 1 liên quan node trong plan · 0 planner chung · 10 khác (chỉ trong report)
+    [plan    ] hash_mem_multiplier              1 (default)                    → 8 (database user)              
+  EXPLAIN (SETTINGS) – chỉ in tham số khác mặc định: PG13: {'effective_cache_size': '1GB', 'random_page_cost': '1.1'} · PG17: {'effective_cache_size': '1GB', 'random_page_cost': '1.1', 'hash_mem_multiplier': '8'}
+pgdoctor 0.3.0: critical=0, high=0, medium=1, low=5, info=0
+  [case4_role_hm8] PG13: 4.05 s  PG17: 3.94 s
+  - MEDIUM   QCFG-DIFF                hash_mem_multiplier      cmp   Khi chạy câu này: hash_mem_multiplier = 1 (PG13) → 8 (PG17)
+  - LOW      PLAN-CTE-COST            case4_role_hm8           PG13  CTE current_brand_code: thân CTE chiếm 2.61 s (64% tổng) → nếu chậm, tối ưu join/scan bên trong CTE
+  - LOW      PLAN-CTE-COST            case4_role_hm8           PG17  CTE current_brand_code: thân CTE chiếm 2.43 s (62% tổng) → nếu chậm, tối ưu join/scan bên trong CTE
+  - LOW      PLAN-MISEST              case4_role_hm8           PG13  CTE Scan on current_brand_code cbc: ước lượng 4754 dòng nhưng thực tế 400.0k (thiếu 84×)
+  - LOW      CMP-EST-SHIFT            case4_role_hm8           cmp   CTE Scan on current_brand_code cbc: ước lượng đổi 80× giữa hai bản (cũ 4754 → mới 381.8k)
+  - LOW      CMP-SETTINGS             case4_role_hm8           cmp   1 tham số khác nhau trong EXPLAIN (SETTINGS)
+Report: lab/results/run/report_role_hm8.html

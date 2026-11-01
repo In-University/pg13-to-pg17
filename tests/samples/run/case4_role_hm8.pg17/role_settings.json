@@ -1,0 +1,9 @@
+[
+  {
+    "role": "app_batch",
+    "database": "lab4",
+    "config": [
+      "hash_mem_multiplier=8"
+    ]
+  }
+]

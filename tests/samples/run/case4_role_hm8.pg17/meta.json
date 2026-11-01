@@ -1,0 +1,32 @@
+{
+  "server_version_num": 170011,
+  "server_version": "PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+  "current_user": "app_batch",
+  "session_user": "app_batch",
+  "database": "lab4",
+  "application_name": "batch-job",
+  "collected_at": "2026-11-01T00:01:58.665892+00:00",
+  "extensions": [
+    {
+      "name": "pg_hint_plan",
+      "version": "1.7.2"
+    },
+    {
+      "name": "pg_stat_statements",
+      "version": "1.11"
+    },
+    {
+      "name": "plpgsql",
+      "version": "1.0"
+    }
+  ],
+  "label": "",
+  "dsn": "host=127.0.0.1 dbname=lab4 user=app_batch application_name='batch-job'",
+  "psql": "docker exec -i -e PGPASSWORD=*** rpg17 psql",
+  "analyze_requested": true,
+  "timeout": "2min",
+  "params": [],
+  "generic_plan": false,
+  "client_options": null,
+  "analyze_error": null
+}

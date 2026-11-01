@@ -1,0 +1,13 @@
+{
+  "query_id": 8512646466599369567,
+  "relations": [
+    "public.products",
+    "public.brand_assignments",
+    "public.stores",
+    "public.brands"
+  ],
+  "hints": [],
+  "has_hint_table": true,
+  "statements": [],
+  "context_stderr": ""
+}

@@ -1,6 +1,9 @@
-# pgdoctor (skill `.claude/skills/pgdoctor`) – phát hiện regression khi nâng cấp PostgreSQL 13 → 17 (offline)
+# pgdoctor (skill `.claude/skills/pgdoctor`) – phát hiện regression khi nâng cấp PostgreSQL 13 → 17
 
-`pgdoctor` đọc các **file** thu thập từ hai server (bản cũ / bản mới) và chỉ ra *vì sao* một query chậm đi sau khi upgrade, kèm bằng chứng, giải thích và cách xử lý. Tool **không kết nối database**, chỉ dùng thư viện chuẩn Python (≥ 3.8), không cần `pip install`.
+`pgdoctor` đọc các **file** thu thập từ hai server (bản cũ / bản mới) và chỉ ra *vì sao* một query chậm đi sau khi upgrade, kèm bằng chứng, giải thích và cách xử lý. Tool chỉ dùng thư viện chuẩn Python (≥ 3.8), không cần `pip install`.
+
+- Các lệnh `analyze`, `remedy`, `qdiff` chạy offline, chỉ đọc file.
+- Các lệnh `run` và `capture` tự kết nối **qua `psql`** để chạy câu lệnh trên cả hai server và lấy cấu hình hiệu lực của session (Mục 1.2).
 
 ```
 python .claude/skills/pgdoctor/pgdoctor_cli.py analyze --old-plan q.pg13.json --new-plan q.pg17.json -o report.html
@@ -71,6 +74,62 @@ python .claude/skills/pgdoctor/pgdoctor_cli.py remedy --plan q.pg17.json --old-p
 - `analyze … --remedies fix.sql` ghi runbook cho mọi query. Report HTML có thêm mục **Khắc phục**.
 
 Chi tiết và số đo: [`solutions.md`](solutions.md), lab: [`lab/remedies/`](../lab/remedies/README.md).
+
+### 1.2 Chạy trực tiếp trên hai server: `run`, `capture`, `qdiff` (từ 0.3.0)
+
+`run` chạy cùng một câu lệnh trên PG13 và PG17. Trong **chính session đó** nó lấy plan và toàn bộ `pg_settings`, rồi liệt kê các tham số khác nhau **có ảnh hưởng tới plan của câu này**. Kết quả có thêm phần so sánh plan, thống kê của các bảng trong plan, và runbook khắc phục.
+
+Chỉ cần `psql` (bản nào từ 10 trở lên cũng được) và Python 3.8; không cần cài driver Python. Lệnh psql cấu hình được, nên chạy được qua Cloud SQL Auth Proxy, `docker exec` hay `kubectl exec`.
+
+```bash
+# q.sql: đúng 1 câu lệnh, nguyên văn như ứng dụng gửi, KHÔNG có EXPLAIN
+python .claude/skills/pgdoctor/pgdoctor_cli.py run \
+  --old-dsn "host=<pg13: instance restore từ backup trước upgrade> dbname=<db> user=<role của ứng dụng>" \
+  --new-dsn "host=127.0.0.1 port=5432 dbname=<db> user=<role của ứng dụng>" \
+  --query-file q.sql --app-name <application_name của job> --analyze old --out-dir run1
+# -> run1/report.html, run1/remedies.sql, run1/findings.json, run1/old/, run1/new/
+```
+
+**Những gì được liệt kê** (in ra console và có trong mục *Cấu hình khi chạy* của report):
+
+| Phần | Nội dung |
+|---|---|
+| Kết luận | Câu chạy chậm vì config hay vì ước lượng của planner. Ví dụ: "PG17 có ngân sách bộ nhớ lớn hơn PG13 nhưng ước lượng subquery tăng 4 754 → 381 797 dòng → nguyên nhân là ƯỚC LƯỢNG" |
+| Quyết định hash của SubPlan | Tính ở cả hai bên bằng giá trị **thật** của session: `rows × (width+24)` so với `work_mem × hash_mem_multiplier`, kèm mức tối thiểu để hash lại |
+| Tham số then chốt | Tham số nằm trong cơ chế của một finding, in **cả khi giống nhau**. Ví dụ `work_mem` và `hash_mem_multiplier` cho `NOT IN` mất hash |
+| Khác biệt, xếp theo mức liên quan | `then chốt` > `node trong plan` (điều khiển một node có trong plan, ví dụ Hash Join → `enable_hashjoin`, `work_mem`) > `planner chung` (cost, `search_path`…) > `khác` (chỉ có trong report). Mỗi dòng có `source` (`default`, `configuration file`, `database`, `user`, `database user`, `client`) và cờ "mặc định đổi theo phiên bản" |
+| EXPLAIN (SETTINGS) | In để đối chiếu. **Không đủ để so sánh**: EXPLAIN chỉ in tham số khác mặc định của chính phiên bản đó, nên `hash_mem_multiplier` 1 → 2 (mặc định đổi từ PG15) không bao giờ hiện ra |
+| ALTER ROLE / DATABASE … SET | Các dòng `pg_db_role_setting` đang áp dụng cho role và database đó |
+| query_id, hint table, pg_stat_statements | `query_id` của câu, các dòng trong `hint_plan.hints` khớp `query_id`, số liệu `pg_stat_statements` của câu đó |
+
+**Mô phỏng đúng session của ứng dụng.** Plan phụ thuộc vào config của session, nên cần:
+- Đăng nhập **bằng role của ứng dụng**.
+- `--app-name`: đặt `application_name` để hint table lọc đúng job.
+- `--client-options "-c work_mem=64MB"`: nếu connection string của ứng dụng có tham số `options`.
+- `--param v1 --param v2`: nếu câu dùng `$1`, `$2`. Tool chạy qua `PREPARE`/`EXECUTE`.
+- `--generic-plan`: ép generic plan, giống JDBC sau 5 lần thực thi (`prepareThreshold`).
+
+**An toàn:**
+- Mặc định chỉ chạy `EXPLAIN`, không thực thi câu lệnh.
+- `--analyze old|new|both` chạy `EXPLAIN ANALYZE` trong `BEGIN … ROLLBACK`, dưới `statement_timeout` (`--timeout`, mặc định `30min`).
+  - Dữ liệu không đổi, nhưng câu `UPDATE` vẫn **giữ row lock** trong lúc chạy.
+  - Với PG17 production đang chậm 2 giờ, dùng `--analyze old`.
+  - Nếu hết timeout, tool tự dùng plan `EXPLAIN` và ghi lỗi vào `meta.json`.
+- Mật khẩu: dùng `~/.pgpass` hoặc `PGPASSWORD`. Mật khẩu trong DSN bị che (`***`) trong `meta.json`.
+
+**Khi không kết nối được hai server cùng lúc** (ví dụ chỉ dựng được PG13 từ backup ở môi trường khác), chụp từng bên rồi so sánh offline:
+
+```bash
+python <skill>/pgdoctor_cli.py capture --dsn "<pg13>" --query-file q.sql --app-name batch-job --analyze --out-dir out/pg13
+python <skill>/pgdoctor_cli.py capture --dsn "<pg17>" --query-file q.sql --app-name batch-job --out-dir out/pg17
+python <skill>/pgdoctor_cli.py qdiff --old-dir out/pg13 --new-dir out/pg17 -o report.html --remedies fix.sql
+```
+
+**Lab** (`lab/remedies`, role `app_batch`, kết quả ở [`lab/results/run/`](../lab/results/run/)), chạy trong 4.7 s:
+- Kết luận: chỉ `hash_mem_multiplier` khác (1 → 2, do mặc định đổi theo phiên bản); `work_mem` giống nhau (4MB).
+  - PG17 có ngân sách 8 MB, lớn hơn 4 MB của PG13, nhưng ước lượng tăng 80 lần nên vẫn không hash.
+  - Tool kết luận nguyên nhân là ước lượng, không phải config.
+- Sau `ALTER ROLE app_batch IN DATABASE lab4 SET hash_mem_multiplier = 8` (`report_role_hm8.html`), tool báo `hash_mem_multiplier 1 (default) → 8 (database user)`, và PG17 có hashed SubPlan với 3.9 s.
 
 ## 2. Thu thập dữ liệu (chạy trên cả hai server)
 

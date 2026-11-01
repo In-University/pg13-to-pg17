@@ -1,0 +1,193 @@
+[
+  {
+    "Plan": {
+      "Node Type": "ModifyTable",
+      "Operation": "Update",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "products",
+      "Schema": "public",
+      "Alias": "p",
+      "Startup Cost": 60987.63,
+      "Total Cost": 61303.34,
+      "Plan Rows": 0,
+      "Plan Width": 0,
+      "Plans": [
+        {
+          "Node Type": "Hash Join",
+          "Parent Relationship": "InitPlan",
+          "Subplan Name": "CTE current_brand_code",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Join Type": "Inner",
+          "Startup Cost": 667.0,
+          "Total Cost": 38556.78,
+          "Plan Rows": 954492,
+          "Plan Width": 10,
+          "Output": [
+            "b.code",
+            "s.region"
+          ],
+          "Inner Unique": true,
+          "Hash Cond": "(ba.brand_id = b.id)",
+          "Plans": [
+            {
+              "Node Type": "Hash Join",
+              "Parent Relationship": "Outer",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Join Type": "Inner",
+              "Startup Cost": 526.5,
+              "Total Cost": 35906.11,
+              "Plan Rows": 955446,
+              "Plan Width": 7,
+              "Output": [
+                "ba.brand_id",
+                "s.region"
+              ],
+              "Inner Unique": true,
+              "Hash Cond": "(ba.store_id = s.id)",
+              "Plans": [
+                {
+                  "Node Type": "Seq Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Relation Name": "brand_assignments",
+                  "Schema": "public",
+                  "Alias": "ba",
+                  "Startup Cost": 0.0,
+                  "Total Cost": 32739.0,
+                  "Plan Rows": 1005733,
+                  "Plan Width": 8,
+                  "Output": [
+                    "ba.id",
+                    "ba.store_id",
+                    "ba.brand_id",
+                    "ba.is_current",
+                    "ba.valid_from"
+                  ],
+                  "Filter": "ba.is_current"
+                },
+                {
+                  "Node Type": "Hash",
+                  "Parent Relationship": "Inner",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Startup Cost": 289.0,
+                  "Total Cost": 289.0,
+                  "Plan Rows": 19000,
+                  "Plan Width": 7,
+                  "Output": [
+                    "s.region",
+                    "s.id"
+                  ],
+                  "Plans": [
+                    {
+                      "Node Type": "Seq Scan",
+                      "Parent Relationship": "Outer",
+                      "Parallel Aware": false,
+                      "Async Capable": false,
+                      "Relation Name": "stores",
+                      "Schema": "public",
+                      "Alias": "s",
+                      "Startup Cost": 0.0,
+                      "Total Cost": 289.0,
+                      "Plan Rows": 19000,
+                      "Plan Width": 7,
+                      "Output": [
+                        "s.region",
+                        "s.id"
+                      ],
+                      "Filter": "s.active"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "Node Type": "Hash",
+              "Parent Relationship": "Inner",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "Startup Cost": 78.0,
+              "Total Cost": 78.0,
+              "Plan Rows": 5000,
+              "Plan Width": 11,
+              "Output": [
+                "b.code",
+                "b.id"
+              ],
+              "Plans": [
+                {
+                  "Node Type": "Seq Scan",
+                  "Parent Relationship": "Outer",
+                  "Parallel Aware": false,
+                  "Async Capable": false,
+                  "Relation Name": "brands",
+                  "Schema": "public",
+                  "Alias": "b",
+                  "Startup Cost": 0.0,
+                  "Total Cost": 78.0,
+                  "Plan Rows": 5000,
+                  "Plan Width": 11,
+                  "Output": [
+                    "b.code",
+                    "b.id"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "Node Type": "Index Scan",
+          "Parent Relationship": "Outer",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Scan Direction": "Forward",
+          "Index Name": "products_status_idx",
+          "Relation Name": "products",
+          "Schema": "public",
+          "Alias": "p",
+          "Startup Cost": 22430.86,
+          "Total Cost": 22746.56,
+          "Plan Rows": 2534,
+          "Plan Width": 46,
+          "Output": [
+            "'ORPHAN'::text",
+            "now()",
+            "p.ctid"
+          ],
+          "Index Cond": "(p.status = 'PENDING'::text)",
+          "Filter": "(NOT (ANY (p.brand_code = (hashed SubPlan 2).col1)))",
+          "Plans": [
+            {
+              "Node Type": "CTE Scan",
+              "Parent Relationship": "SubPlan",
+              "Subplan Name": "SubPlan 2",
+              "Parallel Aware": false,
+              "Async Capable": false,
+              "CTE Name": "current_brand_code",
+              "Alias": "cbc",
+              "Startup Cost": 0.0,
+              "Total Cost": 21476.07,
+              "Plan Rows": 381797,
+              "Plan Width": 32,
+              "Output": [
+                "cbc.brand_code"
+              ],
+              "Filter": "(cbc.region = 'VN'::text)"
+            }
+          ]
+        }
+      ]
+    },
+    "Settings": {
+      "effective_cache_size": "1GB",
+      "random_page_cost": "1.1",
+      "hash_mem_multiplier": "8"
+    },
+    "Query Identifier": 8512646466599369567
+  }
+]
