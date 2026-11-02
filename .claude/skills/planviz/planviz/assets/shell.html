@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>__TITLE__</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="generator" content="planviz __VERSION__">
+<style>
+__CSS__
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <div class="mark">plan<i>viz</i> <small>__SUBTITLE__</small></div>
+    <div class="plans" id="plans"></div>
+    <button class="btn primary" id="open" type="button">Mở plan…</button>
+    <button class="btn" id="theme" type="button" aria-label="Đổi giao diện sáng/tối">Sáng / tối</button>
+  </header>
+  <p class="example" id="example" hidden>Đang hiển thị ví dụ: câu UPDATE … NOT IN (CTE) chạy trên lab PG13 và PG17. Bấm <b>Mở plan…</b> hoặc kéo-thả file EXPLAIN để xem plan của bạn.</p>
+  <section class="kpis" id="kpis" aria-label="Tóm tắt plan"></section>
+  <section class="findings" id="findings" aria-label="Phát hiện"></section>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Chế độ xem"></nav>
+  <div class="work">
+    <section id="view" aria-live="polite"></section>
+    <aside class="panel insp" id="inspector" aria-label="Chi tiết node"></aside>
+  </div>
+  <footer>planviz __VERSION__ · phân tích chạy hoàn toàn trong trình duyệt, plan không được gửi đi đâu. __SOURCES__</footer>
+</div>
+<dialog id="dlg" aria-labelledby="dlg-title">
+  <div class="dlg">
+    <h3 id="dlg-title">Mở plan</h3>
+    <div class="muted">Dán output của <code>EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)</code> hoặc EXPLAIN dạng text (kể cả bản copy từ psql, auto_explain). Có thể chọn nhiều file, hoặc kéo-thả file vào trang.</div>
+    <textarea id="dlg-text" spellcheck="false" placeholder="[ { &quot;Plan&quot;: { &quot;Node Type&quot;: … } } ]   hoặc   Update on products p  (cost=… rows=… width=…) (actual time=… rows=… loops=1) …"></textarea>
+    <div class="row">
+      <label for="dlg-label">Tên</label><input type="text" id="dlg-label" placeholder="vd. PG17 sau khi đổi work_mem">
+      <label class="btn" for="dlg-file">Chọn file…</label><input type="file" id="dlg-file" multiple accept=".json,.txt,.log,.sql,.explain,text/plain,application/json" hidden>
+    </div>
+    <div class="err" id="dlg-err" role="alert"></div>
+    <div class="row">
+      <button class="btn primary" id="dlg-add" type="button">Thêm plan</button>
+      <button class="btn" id="dlg-replace" type="button">Thay tất cả plan</button>
+      <button class="btn" id="dlg-cancel" type="button">Đóng</button>
+    </div>
+  </div>
+</dialog>
+<div class="drop" id="drop" hidden>Thả file EXPLAIN để phân tích</div>
+<script id="planviz-data" type="application/json">__DATA__</script>
+<script>
+__CORE__
+</script>
+<script>
+__UI__
+</script>
+</body>
+</html>

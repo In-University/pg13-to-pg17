@@ -1,0 +1,98 @@
+{
+  "_severity": {"critical": "Nghiêm trọng", "high": "Cao", "medium": "Trung bình", "low": "Thấp", "info": "Thông tin"},
+  "NO_ANALYZE": {
+    "title": "Plan chỉ có ước lượng, không có số thực tế",
+    "detail": "EXPLAIN chạy không có ANALYZE nên không có số dòng hay thời gian thực tế: không tính được sai số ước lượng và điểm nóng.",
+    "fix": "Chạy EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON). Với UPDATE/DELETE hãy bọc trong BEGIN … ROLLBACK (planviz explain --analyze làm sẵn, kèm statement_timeout)."
+  },
+  "NO_TIMING": {
+    "title": "Plan ANALYZE nhưng tắt TIMING",
+    "detail": "Có số dòng thực tế nhưng không có thời gian từng node, nên chỉ phân tích được sai số ước lượng.",
+    "fix": "Bỏ TIMING OFF (hoặc auto_explain.log_timing = on) nếu cần biết thời gian từng node."
+  },
+  "HOTSPOT": {
+    "title": "{pct}% thời gian nằm ở {node}",
+    "detail": "Thời gian riêng {excl} trên tổng {runtime} (đã trừ thời gian các node con).",
+    "fix": "Xem các phát hiện khác gắn với node này và với node con của nó để biết vì sao chậm."
+  },
+  "SUBPLAN_RESCAN": {
+    "title": "{sub} chạy lại {loops} lần vì không được hash",
+    "detail": "{sub} được thực thi lại cho mỗi dòng của node cha, mỗi lần trả về trung bình {rows} dòng ({read} dòng qua tất cả các lần); cả nhánh chiếm {pct}% thời gian.{?notin} Đây là mẫu NOT IN / = ANY (subquery): PostgreSQL chỉ dùng hashed SubPlan khi bảng băm ước lượng ({est} dòng × ({width} B căn lề 8 + 24 B) ≈ {need}) vừa work_mem × hash_mem_multiplier = {work_mem} × {hm} ({hm_source}) = {budget}. Bảng băm của SubPlan không tràn đĩa được, nên vượt ngưỡng là rơi xuống quét lại.{/notin}{?fits} Ước lượng vừa ngân sách mà vẫn không hash: kiểm tra kiểu dữ liệu có hàm băm không và subquery có tham chiếu cột ngoài không.{/fits}{!notin} SubPlan tương quan: mỗi dòng ngoài kích hoạt một lần thực thi.{/notin}",
+    "fix": "{?notin}Viết lại thành NOT EXISTS (Hash Anti Join, tràn đĩa theo batch thay vì quét lại), hoặc nâng ngân sách cho riêng câu này: work_mem ≥ {need_work_mem} với hash_mem_multiplier {hm} (pg_hint_plan Set(work_mem …), ALTER ROLE … IN DATABASE … SET).{/notin}{!notin}Viết lại thành JOIN / LATERAL, hoặc bảo đảm có index cho điều kiện tương quan.{/notin}"
+  },
+  "RESCAN": {
+    "title": "{node} bị quét lại {loops} lần",
+    "detail": "Mỗi lần trả về trung bình {rows} dòng; cả nhánh chiếm {pct}% thời gian. Thường gặp khi planner chọn Nested Loop vì ước lượng thấp số dòng phía ngoài.",
+    "fix": "Kiểm tra ước lượng ở phía ngoài Nested Loop; thêm index cho khoá join phía trong, hoặc sửa thống kê để planner chọn Hash Join."
+  },
+  "MISEST": {
+    "title": "Ước lượng {dir} {local} phát sinh tại {node}",
+    "detail": "Planner đoán {est} dòng mỗi loop, thực tế {rows}: sai số tích luỹ {total}. Đầu vào của node chỉ mang theo {base}, phần còn lại sinh ra ở chính node này{?cte} (so với ước lượng của CTE mà nó đọc){/cte}. Điều kiện: {cond}",
+    "fix": "{?cte}Ước lượng của CTE Scan dựa trên thống kê cột mà planner gán cho CTE (từ PG17 mượn thống kê bảng gốc). {/cte}ANALYZE các bảng liên quan; điều kiện trên nhiều cột tương quan thì CREATE STATISTICS (dependencies, mcv); biểu thức/hàm thì thống kê biểu thức (PG14+) hoặc index biểu thức; cột phân bố lệch thì ALTER TABLE … ALTER COLUMN … SET STATISTICS."
+  },
+  "SORT_SPILL": {
+    "title": "Sort tràn đĩa {disk}",
+    "detail": "{node} không vừa work_mem nên sắp xếp ngoài (external merge) qua file tạm.",
+    "fix": "Cho câu này work_mem khoảng ≥ {need} (SET LOCAL, pg_hint_plan Set) hoặc giảm số dòng/cột phải sort."
+  },
+  "HASH_SPILL": {
+    "title": "Hash chia {batches} batch (tràn đĩa)",
+    "detail": "Bảng băm dùng tối đa {peak} mỗi batch.{?grew} Lúc lập kế hoạch planner tưởng chỉ cần {orig} batch: số dòng phía build bị ước lượng thiếu.{/grew}",
+    "fix": "work_mem × hash_mem_multiplier khoảng ≥ {need} để chạy một batch."
+  },
+  "HASHAGG_SPILL": {
+    "title": "HashAggregate tràn đĩa ({batches} batch, {disk})",
+    "detail": "Số nhóm thực tế vượt bộ nhớ hash (work_mem × hash_mem_multiplier).",
+    "fix": "Tăng work_mem / hash_mem_multiplier cho câu này, hoặc sửa ước lượng số nhóm (CREATE STATISTICS … (ndistinct))."
+  },
+  "TEMP_IO": {
+    "title": "{node} ghi {size} ra file tạm",
+    "detail": "Lượng ghi file tạm (temp written) sinh ra riêng tại node này: tuplestore của CTE / Materialize, hoặc Sort / Hash vượt work_mem.",
+    "fix": "Tăng work_mem cho câu này hoặc giảm dữ liệu trung gian."
+  },
+  "FILTER_WASTE": {
+    "title": "{node} đọc rồi bỏ {pct}% số dòng",
+    "detail": "Bỏ {removed} dòng, giữ {kept}. Điều kiện: {cond}",
+    "fix": "{?seq}Index (hoặc partial index) trên cột của điều kiện lọc giúp đọc ít hơn.{/seq}{?cte}CTE không có index: đưa điều kiện lọc vào trong CTE, hoặc dùng NOT MATERIALIZED để planner đẩy điều kiện xuống bảng gốc. Nếu đây là bước kiểm tra cố ý (vd. tìm NULL) thì có thể bỏ qua.{/cte}{?idx}Index đang dùng không bao hết điều kiện: cân nhắc index nhiều cột hoặc partial index.{/idx}"
+  },
+  "LOSSY_BITMAP": {
+    "title": "Bitmap bị lossy ({lossy} trang)",
+    "detail": "Bitmap vượt work_mem nên chỉ nhớ theo trang và phải kiểm tra lại {recheck} dòng.",
+    "fix": "Tăng work_mem cho câu này."
+  },
+  "HEAP_FETCHES": {
+    "title": "Index Only Scan vẫn đọc heap {fetches} lần",
+    "detail": "Visibility map chưa cập nhật nên Index Only Scan phải đọc bảng ({rows} dòng trả về).",
+    "fix": "VACUUM bảng (hoặc chỉnh autovacuum) để cập nhật visibility map."
+  },
+  "WORKERS": {
+    "title": "Chỉ khởi động được {launched}/{planned} worker song song",
+    "detail": "Lúc chạy không còn đủ worker (max_parallel_workers / max_worker_processes).",
+    "fix": "Kiểm tra max_parallel_workers, max_worker_processes và tải đồng thời."
+  },
+  "MEMOIZE": {
+    "title": "Memoize ít trúng cache ({hits} trúng, {misses} trượt)",
+    "detail": "Cache bị đẩy ra {evictions} lần: số giá trị khác nhau nhiều hơn planner nghĩ.",
+    "fix": "Kiểm tra n_distinct của khoá tra cứu; có thể tắt enable_memoize cho câu này."
+  },
+  "JIT": {
+    "title": "JIT tốn {jit} ({pct}% thời gian)",
+    "detail": "JIT được bật vì cost ước lượng vượt jit_above_cost.",
+    "fix": "Tăng jit_above_cost / jit_optimize_above_cost hoặc tắt jit cho workload này."
+  },
+  "TRIGGERS": {
+    "title": "Trigger chiếm {ms} ({pct}% thời gian)",
+    "detail": "Trigger tốn nhất: {top} ({calls} lần gọi). RI_ConstraintTrigger là trigger kiểm tra khoá ngoại.",
+    "fix": "Bảng con của khoá ngoại cần index trên cột tham chiếu."
+  },
+  "PLANNING": {
+    "title": "Lập kế hoạch ({planning}) lâu hơn thực thi ({exec})",
+    "detail": "Thời gian planner vượt thời gian chạy: nhiều partition, nhiều join hoặc thống kê rất lớn.",
+    "fix": "Dùng prepared statement (generic plan), giảm partition không cần, hoặc join_collapse_limit nhỏ hơn."
+  },
+  "NEVER_EXECUTED": {
+    "title": "{count} node không bao giờ chạy",
+    "detail": "Các nhánh 'never executed' bị bỏ qua lúc chạy: partition pruning, phía ngoài rỗng, hoặc nhánh không cần đến.",
+    "fix": ""
+  }
+}

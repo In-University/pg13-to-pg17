@@ -1,0 +1,2092 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PG13 vs PG17 · planviz</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="generator" content="planviz 0.1.0">
+<style>
+/* Layout: analyst workbench. Plan bar, KPI strip and findings on top; below, a canvas of views (diagram, tree table,
+   estimate-vs-actual, time) with the node inspector docked on the right (stacked under it on narrow screens).
+   Colour jobs: graphite ramp = magnitude (time, buffers); blue <-> orange diverging = estimation error
+   (blue: planner over-estimated, orange: under-estimated); status colours only for finding severity, always with a label. */
+:root {
+  color-scheme: light;
+  --plane: #f3f4f2; --surface: #fcfcfb; --surface-2: #eceeeb; --ink: #141614; --ink-2: #4a4f4b; --muted: #747a75;
+  --line: #dcdfdb; --grid: #e5e7e3; --axis: #b9beb9;
+  --accent: #0b7262; --accent-ink: #ffffff; --accent-soft: #d6ede7;
+  --m0: #eef0ed; --m1: #d9ddd8; --m2: #b3b9b3; --m3: #7b827c; --m4: #444a45; --m5: #161a17;
+  --on-m0: #141614; --on-m1: #141614; --on-m2: #141614; --on-m3: #ffffff; --on-m4: #ffffff; --on-m5: #ffffff;
+  --o3: #184f95; --o2: #3a86e0; --o1: #a9cbf3; --q0: #e7e8e4; --u1: #f6c39f; --u2: #e3702f; --u3: #a2400f;
+  --on-o3: #ffffff; --on-o2: #ffffff; --on-o1: #10243f; --on-q0: #141614; --on-u1: #3a1a06; --on-u2: #1d0c03; --on-u3: #ffffff;
+  --crit: #d03b3b; --serious: #ec835a; --warn: #fab219; --good: #0ca30c; --info: #7a807b;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --plane: #0e100f; --surface: #171a18; --surface-2: #212522; --ink: #eceeeb; --ink-2: #bfc4bf; --muted: #8a908b;
+    --line: #2d322e; --grid: #262a27; --axis: #444b45;
+    --accent: #45c2a8; --accent-ink: #062019; --accent-soft: #15332c;
+    --m0: #222724; --m1: #343a35; --m2: #565e57; --m3: #8d958e; --m4: #c5cbc5; --m5: #f2f4f1;
+    --on-m0: #eceeeb; --on-m1: #eceeeb; --on-m2: #ffffff; --on-m3: #0e100f; --on-m4: #0e100f; --on-m5: #0e100f;
+    --o3: #6aa6ef; --o2: #2f6fc0; --o1: #1d3a60; --q0: #2b302c; --u1: #5c3420; --u2: #c65a22; --u3: #f39257;
+    --on-o3: #07121f; --on-o2: #ffffff; --on-o1: #dbe8f8; --on-q0: #eceeeb; --on-u1: #fbe3d4; --on-u2: #ffffff; --on-u3: #1d0c03;
+    --info: #8a908b;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --plane: #0e100f; --surface: #171a18; --surface-2: #212522; --ink: #eceeeb; --ink-2: #bfc4bf; --muted: #8a908b;
+  --line: #2d322e; --grid: #262a27; --axis: #444b45;
+  --accent: #45c2a8; --accent-ink: #062019; --accent-soft: #15332c;
+  --m0: #222724; --m1: #343a35; --m2: #565e57; --m3: #8d958e; --m4: #c5cbc5; --m5: #f2f4f1;
+  --on-m0: #eceeeb; --on-m1: #eceeeb; --on-m2: #ffffff; --on-m3: #0e100f; --on-m4: #0e100f; --on-m5: #0e100f;
+  --o3: #6aa6ef; --o2: #2f6fc0; --o1: #1d3a60; --q0: #2b302c; --u1: #5c3420; --u2: #c65a22; --u3: #f39257;
+  --on-o3: #07121f; --on-o2: #ffffff; --on-o1: #dbe8f8; --on-q0: #eceeeb; --on-u1: #fbe3d4; --on-u2: #ffffff; --on-u3: #1d0c03;
+  --info: #8a908b;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { background: var(--plane); }
+body { margin: 0; color: var(--ink); font: 14px/1.5 var(--sans); -webkit-text-size-adjust: 100%; }
+.wrap { padding-block: 0 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1680px; margin: 0 auto; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.muted { color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); margin: 0; font-weight: 650; }
+
+/* ---- top bar */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 0 12px; border-bottom: 1px solid var(--line); }
+.mark { font-family: var(--mono); font-weight: 700; font-size: 17px; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 8px; }
+.mark i { font-style: normal; color: var(--accent); }
+.mark small { font-family: var(--sans); font-weight: 400; font-size: 12px; color: var(--muted); }
+.plans { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 auto; }
+.chip-plan { display: inline-flex; align-items: baseline; gap: 8px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; }
+.chip-plan b { font-weight: 650; }
+.chip-plan[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.chip-plan .x { border: 0; background: none; padding: 0 0 0 4px; color: var(--muted); }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r); padding: 5px 12px; }
+.btn:hover { border-color: var(--axis); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.small { padding: 2px 9px; font-size: 12.5px; }
+.example { margin: 10px 0 0; padding: 8px 12px; border-radius: var(--r); background: var(--accent-soft); color: var(--ink); font-size: 13px; }
+
+/* ---- KPI strip */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; margin: 14px 0; }
+.kpi { background: var(--surface); padding: 10px 14px; min-width: 0; }
+.kpi span { display: block; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.kpi b { display: block; font-size: 21px; font-weight: 650; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi em { font-style: normal; font-size: 12px; color: var(--ink-2); }
+
+/* ---- findings */
+.findings { display: grid; gap: 6px; margin: 0 0 16px; }
+.findings-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.find { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.find > summary { list-style: none; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline; padding: 8px 12px; cursor: pointer; }
+.find > summary::-webkit-details-marker { display: none; }
+.find .body { padding: 0 12px 10px 12px; display: grid; gap: 6px; font-size: 13.5px; max-width: 110ch; }
+.find .body b { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); display: block; }
+.find .go { font-size: 12.5px; }
+.sev { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 650; white-space: nowrap; color: var(--ink-2); }
+.sev::before { content: ""; width: 9px; height: 9px; border-radius: 2px; background: var(--info); flex: none; }
+.sev.critical::before { background: var(--crit); transform: rotate(45deg); }
+.sev.high::before { background: var(--serious); border-radius: 50%; }
+.sev.medium::before { background: var(--warn); }
+.sev.low::before { background: var(--good); border-radius: 50%; width: 7px; height: 7px; }
+.sev.info::before { background: var(--info); width: 7px; height: 2px; }
+.rule { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+/* ---- views */
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 0; }
+.tab { border: 0; background: none; padding: 8px 14px; border-bottom: 2px solid transparent; color: var(--ink-2); font-weight: 550; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.work { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; margin-top: 12px; align-items: start; }
+@media (max-width: 1100px) { .work { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.tools label { display: inline-flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--ink-2); }
+.tools select, .tools input[type="search"] { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r); padding: 3px 8px; }
+.tools .sp { flex: 1 1 auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 12px; color: var(--ink-2); padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.legend .sw { display: inline-block; width: 18px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+.note { font-size: 12.5px; color: var(--muted); padding: 8px 12px; }
+
+/* diagram */
+.canvas { position: relative; height: min(72vh, 760px); min-height: 360px; overflow: hidden; touch-action: none; cursor: grab; background:
+  radial-gradient(circle, var(--grid) 1px, transparent 1.2px) 0 0 / 22px 22px, var(--surface); border-radius: 0 0 var(--r) var(--r); }
+.canvas.dragging { cursor: grabbing; }
+.canvas svg { width: 100%; height: 100%; display: block; }
+.nd { cursor: pointer; }
+.nd .box { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
+.nd.hot .box { stroke: var(--ink-2); stroke-width: 1.5; }
+.nd.sel .box { stroke: var(--accent); stroke-width: 3; }
+.nd.dim { opacity: .28; }
+.nd.mate .box { stroke: var(--accent); stroke-dasharray: 4 3; stroke-width: 2; }
+.nd text { fill: var(--ink); font-family: var(--sans); }
+.nd .t1 { font-size: 13px; font-weight: 650; }
+.nd .t2 { font-size: 11.5px; fill: var(--ink-2); font-family: var(--mono); }
+.nd .t3 { font-size: 12px; font-variant-numeric: tabular-nums; }
+.nd .tb { font-size: 11.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.nd .loops { font-size: 11px; font-weight: 650; fill: var(--ink-2); }
+.edge { fill: none; stroke: var(--axis); stroke-linecap: round; }
+.edge.hot { stroke: var(--ink-2); }
+.edge.sub { stroke-dasharray: 2 6; }
+.elabel { font-size: 11px; fill: var(--ink-2); font-family: var(--sans); font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.slabel { font-size: 11px; fill: var(--accent); font-family: var(--mono); font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+.zoom { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 4px; }
+.zoom button { width: 32px; height: 32px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r); font-size: 15px; line-height: 1; }
+
+/* fills by bin (shared by diagram, icicle, table cells) */
+.f-m0 { fill: var(--m0); background: var(--m0); color: var(--on-m0); } .f-m1 { fill: var(--m1); background: var(--m1); color: var(--on-m1); }
+.f-m2 { fill: var(--m2); background: var(--m2); color: var(--on-m2); } .f-m3 { fill: var(--m3); background: var(--m3); color: var(--on-m3); }
+.f-m4 { fill: var(--m4); background: var(--m4); color: var(--on-m4); } .f-m5 { fill: var(--m5); background: var(--m5); color: var(--on-m5); }
+.f-o3 { fill: var(--o3); background: var(--o3); color: var(--on-o3); } .f-o2 { fill: var(--o2); background: var(--o2); color: var(--on-o2); }
+.f-o1 { fill: var(--o1); background: var(--o1); color: var(--on-o1); } .f-q0 { fill: var(--q0); background: var(--q0); color: var(--on-q0); }
+.f-u1 { fill: var(--u1); background: var(--u1); color: var(--on-u1); } .f-u2 { fill: var(--u2); background: var(--u2); color: var(--on-u2); }
+.f-u3 { fill: var(--u3); background: var(--u3); color: var(--on-u3); } .f-na { fill: var(--surface-2); background: var(--surface-2); color: var(--muted); }
+text.o-m0 { fill: var(--on-m0); } text.o-m1 { fill: var(--on-m1); } text.o-m2 { fill: var(--on-m2); } text.o-m3 { fill: var(--on-m3); }
+text.o-m4 { fill: var(--on-m4); } text.o-m5 { fill: var(--on-m5); } text.o-o3 { fill: var(--on-o3); } text.o-o2 { fill: var(--on-o2); }
+text.o-o1 { fill: var(--on-o1); } text.o-q0 { fill: var(--on-q0); } text.o-u1 { fill: var(--on-u1); } text.o-u2 { fill: var(--on-u2); }
+text.o-u3 { fill: var(--on-u3); } text.o-na { fill: var(--muted); }
+
+/* tree table */
+.tablewrap { overflow: auto; max-height: min(74vh, 800px); border-radius: 0 0 var(--r) var(--r); }
+table.grid { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12.5px; }
+table.grid th, table.grid td { padding: 4px 8px; border-bottom: 1px solid var(--grid); text-align: right; white-space: nowrap; vertical-align: middle; }
+table.grid th { position: sticky; top: 0; background: var(--surface-2); font-weight: 600; color: var(--ink-2); z-index: 1; font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; }
+table.grid th button { border: 0; background: none; padding: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
+table.grid th[aria-sort="descending"] button::after { content: " ▼"; }
+table.grid th[aria-sort="ascending"] button::after { content: " ▲"; }
+table.grid td.l, table.grid th.l { text-align: left; }
+table.grid td { font-variant-numeric: tabular-nums; }
+table.grid tbody tr { cursor: pointer; }
+table.grid tbody tr:hover td { background: var(--surface-2); }
+table.grid tbody tr.sel td { background: var(--accent-soft); }
+table.grid tbody tr.mate td { box-shadow: inset 0 -2px 0 var(--accent); }
+.nodecell { font-family: var(--mono); font-size: 12px; max-width: 520px; overflow: hidden; text-overflow: ellipsis; }
+.nodecell .arrow { color: var(--muted); }
+.nodecell .subn { color: var(--accent); font-weight: 600; }
+.cell { display: inline-block; min-width: 64px; padding: 1px 6px; border-radius: 3px; text-align: right; }
+.tbar { display: inline-grid; grid-template-columns: 70px 54px; gap: 6px; align-items: center; }
+.tbar i { display: block; height: 8px; background: var(--surface-2); border-radius: 0 4px 4px 0; position: relative; overflow: hidden; }
+.tbar i b { position: absolute; left: 0; top: 0; bottom: 0; background: var(--m4); border-radius: 0 4px 4px 0; }
+
+/* charts */
+.chart { position: relative; padding: 8px 12px 12px; }
+.chart svg { display: block; width: 100%; height: auto; max-width: 860px; overflow: visible; }
+.chart .gridl { stroke: var(--grid); stroke-width: 1; }
+.chart .axisl { stroke: var(--axis); stroke-width: 1; }
+.chart .tick { font-size: 11px; fill: var(--muted); font-family: var(--sans); font-variant-numeric: tabular-nums; }
+.chart .atitle { font-size: 12px; fill: var(--ink-2); font-family: var(--sans); }
+.chart .band { fill: var(--surface-2); }
+.chart .diag { stroke: var(--ink-2); stroke-width: 1.5; }
+.chart .dot { stroke: var(--surface); stroke-width: 2; }
+.chart .dot.sel { stroke: var(--accent); stroke-width: 3; }
+.chart .dlabel { font-size: 11.5px; fill: var(--ink); font-family: var(--sans); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+.chart .link { stroke: var(--axis); stroke-width: 1.5; }
+.chart .sA { fill: var(--surface); stroke: #2a78d6; stroke-width: 2.5; }
+.chart .sB { fill: #eb6834; stroke: var(--surface); stroke-width: 2; }
+.icicle svg { max-width: none; }
+.chart .dot.f-q0 { fill: var(--m2); }
+.icicle rect.cellr { stroke: var(--surface); stroke-width: 2; cursor: pointer; }
+.icicle rect.cellr.sel { stroke: var(--accent); stroke-width: 3; }
+.icicle text { font-size: 11.5px; font-family: var(--sans); pointer-events: none; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,.12); max-width: 320px; z-index: 5; }
+.tip b { display: block; font-size: 14px; font-variant-numeric: tabular-nums; }
+.tip .k { color: var(--muted); }
+
+/* inspector */
+.insp { position: sticky; top: max(12px, env(safe-area-inset-top, 0px)); max-height: calc(100vh - 24px); overflow: auto; }
+@media (max-width: 1100px) { .insp { position: static; max-height: none; } }
+.insp-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--line); }
+.insp-head .ttl { font-weight: 700; font-size: 15px; }
+.insp-head .obj { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); word-break: break-all; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.tag { font-size: 11px; border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; color: var(--ink-2); }
+.tag.hot { border-color: var(--ink-2); color: var(--ink); font-weight: 600; }
+.sect { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.sect:last-child { border-bottom: 0; }
+.sect h3 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 6px; font-weight: 650; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.decomp { font-size: 13px; line-height: 1.6; }
+.decomp .cell { min-width: 0; }
+.prop { display: grid; grid-template-columns: minmax(0, 1fr) 150px 56px; gap: 3px 8px; align-items: center; font-size: 12px; }
+.prop .who { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prop .who.me { font-weight: 700; }
+.pbar { position: relative; height: 12px; background: var(--surface-2); border-radius: 2px; }
+.pbar::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--axis); }
+.pbar i { position: absolute; top: 1px; bottom: 1px; }
+.raw { display: grid; gap: 6px; font-size: 12px; }
+.raw div b { display: block; font-weight: 600; color: var(--muted); font-size: 11.5px; }
+.raw code { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+.empty { padding: 24px 14px; color: var(--muted); font-size: 13px; }
+
+/* compare */
+.cmp-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.delta-up { color: var(--crit); font-weight: 600; } .delta-down { color: var(--good); font-weight: 600; }
+.ratio { font-weight: 700; }
+.only { padding: 8px 12px; font-size: 12.5px; }
+.only code { font-family: var(--mono); }
+
+/* open dialog */
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); width: min(820px, calc(100vw - 32px)); padding: 0; }
+dialog::backdrop { background: rgba(10, 12, 11, .45); }
+.dlg { display: grid; gap: 10px; padding: 16px; }
+.dlg h3 { margin: 0; font-size: 16px; }
+.dlg textarea { width: 100%; min-height: 260px; border: 1px solid var(--line); border-radius: var(--r); background: var(--plane); padding: 8px; font-family: var(--mono); font-size: 12px; }
+.dlg .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.dlg input[type="text"] { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: 4px 8px; }
+.err { color: var(--crit); font-size: 13px; }
+.drop { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(11, 114, 98, .18); border: 3px dashed var(--accent); font-size: 18px; font-weight: 650; z-index: 20; pointer-events: none; }
+footer { color: var(--muted); font-size: 12px; margin-top: 18px; }
+@media (prefers-reduced-motion: no-preference) { .nd, .dot { transition: opacity .15s; } }
+
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <div class="mark">plan<i>viz</i> <small>phân tích EXPLAIN của PostgreSQL</small></div>
+    <div class="plans" id="plans"></div>
+    <button class="btn primary" id="open" type="button">Mở plan…</button>
+    <button class="btn" id="theme" type="button" aria-label="Đổi giao diện sáng/tối">Sáng / tối</button>
+  </header>
+  <p class="example" id="example" hidden>Đang hiển thị ví dụ: câu UPDATE … NOT IN (CTE) chạy trên lab PG13 và PG17. Bấm <b>Mở plan…</b> hoặc kéo-thả file EXPLAIN để xem plan của bạn.</p>
+  <section class="kpis" id="kpis" aria-label="Tóm tắt plan"></section>
+  <section class="findings" id="findings" aria-label="Phát hiện"></section>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Chế độ xem"></nav>
+  <div class="work">
+    <section id="view" aria-live="polite"></section>
+    <aside class="panel insp" id="inspector" aria-label="Chi tiết node"></aside>
+  </div>
+  <footer>planviz 0.1.0 · phân tích chạy hoàn toàn trong trình duyệt, plan không được gửi đi đâu. Nguồn: PG13 = lab/results/case1_pg13.txt; PG17 = lab/results/case1_pg17.txt.</footer>
+</div>
+<dialog id="dlg" aria-labelledby="dlg-title">
+  <div class="dlg">
+    <h3 id="dlg-title">Mở plan</h3>
+    <div class="muted">Dán output của <code>EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)</code> hoặc EXPLAIN dạng text (kể cả bản copy từ psql, auto_explain). Có thể chọn nhiều file, hoặc kéo-thả file vào trang.</div>
+    <textarea id="dlg-text" spellcheck="false" placeholder="[ { &quot;Plan&quot;: { &quot;Node Type&quot;: … } } ]   hoặc   Update on products p  (cost=… rows=… width=…) (actual time=… rows=… loops=1) …"></textarea>
+    <div class="row">
+      <label for="dlg-label">Tên</label><input type="text" id="dlg-label" placeholder="vd. PG17 sau khi đổi work_mem">
+      <label class="btn" for="dlg-file">Chọn file…</label><input type="file" id="dlg-file" multiple accept=".json,.txt,.log,.sql,.explain,text/plain,application/json" hidden>
+    </div>
+    <div class="err" id="dlg-err" role="alert"></div>
+    <div class="row">
+      <button class="btn primary" id="dlg-add" type="button">Thêm plan</button>
+      <button class="btn" id="dlg-replace" type="button">Thay tất cả plan</button>
+      <button class="btn" id="dlg-cancel" type="button">Đóng</button>
+    </div>
+  </div>
+</dialog>
+<div class="drop" id="drop" hidden>Thả file EXPLAIN để phân tích</div>
+<script id="planviz-data" type="application/json">{"version":"0.1.0","example":false,"rules":{"_severity":{"critical":"Nghiêm trọng","high":"Cao","medium":"Trung bình","low":"Thấp","info":"Thông tin"},"NO_ANALYZE":{"title":"Plan chỉ có ước lượng, không có số thực tế","detail":"EXPLAIN chạy không có ANALYZE nên không có số dòng hay thời gian thực tế: không tính được sai số ước lượng và điểm nóng.","fix":"Chạy EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON). Với UPDATE/DELETE hãy bọc trong BEGIN … ROLLBACK (planviz explain --analyze làm sẵn, kèm statement_timeout)."},"NO_TIMING":{"title":"Plan ANALYZE nhưng tắt TIMING","detail":"Có số dòng thực tế nhưng không có thời gian từng node, nên chỉ phân tích được sai số ước lượng.","fix":"Bỏ TIMING OFF (hoặc auto_explain.log_timing = on) nếu cần biết thời gian từng node."},"HOTSPOT":{"title":"{pct}% thời gian nằm ở {node}","detail":"Thời gian riêng {excl} trên tổng {runtime} (đã trừ thời gian các node con).","fix":"Xem các phát hiện khác gắn với node này và với node con của nó để biết vì sao chậm."},"SUBPLAN_RESCAN":{"title":"{sub} chạy lại {loops} lần vì không được hash","detail":"{sub} được thực thi lại cho mỗi dòng của node cha, mỗi lần trả về trung bình {rows} dòng ({read} dòng qua tất cả các lần); cả nhánh chiếm {pct}% thời gian.{?notin} Đây là mẫu NOT IN / = ANY (subquery): PostgreSQL chỉ dùng hashed SubPlan khi bảng băm ước lượng ({est} dòng × ({width} B căn lề 8 + 24 B) ≈ {need}) vừa work_mem × hash_mem_multiplier = {work_mem} × {hm} ({hm_source}) = {budget}. Bảng băm của SubPlan không tràn đĩa được, nên vượt ngưỡng là rơi xuống quét lại.{/notin}{?fits} Ước lượng vừa ngân sách mà vẫn không hash: kiểm tra kiểu dữ liệu có hàm băm không và subquery có tham chiếu cột ngoài không.{/fits}{!notin} SubPlan tương quan: mỗi dòng ngoài kích hoạt một lần thực thi.{/notin}","fix":"{?notin}Viết lại thành NOT EXISTS (Hash Anti Join, tràn đĩa theo batch thay vì quét lại), hoặc nâng ngân sách cho riêng câu này: work_mem ≥ {need_work_mem} với hash_mem_multiplier {hm} (pg_hint_plan Set(work_mem …), ALTER ROLE … IN DATABASE … SET).{/notin}{!notin}Viết lại thành JOIN / LATERAL, hoặc bảo đảm có index cho điều kiện tương quan.{/notin}"},"RESCAN":{"title":"{node} bị quét lại {loops} lần","detail":"Mỗi lần trả về trung bình {rows} dòng; cả nhánh chiếm {pct}% thời gian. Thường gặp khi planner chọn Nested Loop vì ước lượng thấp số dòng phía ngoài.","fix":"Kiểm tra ước lượng ở phía ngoài Nested Loop; thêm index cho khoá join phía trong, hoặc sửa thống kê để planner chọn Hash Join."},"MISEST":{"title":"Ước lượng {dir} {local} phát sinh tại {node}","detail":"Planner đoán {est} dòng mỗi loop, thực tế {rows}: sai số tích luỹ {total}. Đầu vào của node chỉ mang theo {base}, phần còn lại sinh ra ở chính node này{?cte} (so với ước lượng của CTE mà nó đọc){/cte}. Điều kiện: {cond}","fix":"{?cte}Ước lượng của CTE Scan dựa trên thống kê cột mà planner gán cho CTE (từ PG17 mượn thống kê bảng gốc). {/cte}ANALYZE các bảng liên quan; điều kiện trên nhiều cột tương quan thì CREATE STATISTICS (dependencies, mcv); biểu thức/hàm thì thống kê biểu thức (PG14+) hoặc index biểu thức; cột phân bố lệch thì ALTER TABLE … ALTER COLUMN … SET STATISTICS."},"SORT_SPILL":{"title":"Sort tràn đĩa {disk}","detail":"{node} không vừa work_mem nên sắp xếp ngoài (external merge) qua file tạm.","fix":"Cho câu này work_mem khoảng ≥ {need} (SET LOCAL, pg_hint_plan Set) hoặc giảm số dòng/cột phải sort."},"HASH_SPILL":{"title":"Hash chia {batches} batch (tràn đĩa)","detail":"Bảng băm dùng tối đa {peak} mỗi batch.{?grew} Lúc lập kế hoạch planner tưởng chỉ cần {orig} batch: số dòng phía build bị ước lượng thiếu.{/grew}","fix":"work_mem × hash_mem_multiplier khoảng ≥ {need} để chạy một batch."},"HASHAGG_SPILL":{"title":"HashAggregate tràn đĩa ({batches} batch, {disk})","detail":"Số nhóm thực tế vượt bộ nhớ hash (work_mem × hash_mem_multiplier).","fix":"Tăng work_mem / hash_mem_multiplier cho câu này, hoặc sửa ước lượng số nhóm (CREATE STATISTICS … (ndistinct))."},"TEMP_IO":{"title":"{node} ghi {size} ra file tạm","detail":"Lượng ghi file tạm (temp written) sinh ra riêng tại node này: tuplestore của CTE / Materialize, hoặc Sort / Hash vượt work_mem.","fix":"Tăng work_mem cho câu này hoặc giảm dữ liệu trung gian."},"FILTER_WASTE":{"title":"{node} đọc rồi bỏ {pct}% số dòng","detail":"Bỏ {removed} dòng, giữ {kept}. Điều kiện: {cond}","fix":"{?seq}Index (hoặc partial index) trên cột của điều kiện lọc giúp đọc ít hơn.{/seq}{?cte}CTE không có index: đưa điều kiện lọc vào trong CTE, hoặc dùng NOT MATERIALIZED để planner đẩy điều kiện xuống bảng gốc. Nếu đây là bước kiểm tra cố ý (vd. tìm NULL) thì có thể bỏ qua.{/cte}{?idx}Index đang dùng không bao hết điều kiện: cân nhắc index nhiều cột hoặc partial index.{/idx}"},"LOSSY_BITMAP":{"title":"Bitmap bị lossy ({lossy} trang)","detail":"Bitmap vượt work_mem nên chỉ nhớ theo trang và phải kiểm tra lại {recheck} dòng.","fix":"Tăng work_mem cho câu này."},"HEAP_FETCHES":{"title":"Index Only Scan vẫn đọc heap {fetches} lần","detail":"Visibility map chưa cập nhật nên Index Only Scan phải đọc bảng ({rows} dòng trả về).","fix":"VACUUM bảng (hoặc chỉnh autovacuum) để cập nhật visibility map."},"WORKERS":{"title":"Chỉ khởi động được {launched}/{planned} worker song song","detail":"Lúc chạy không còn đủ worker (max_parallel_workers / max_worker_processes).","fix":"Kiểm tra max_parallel_workers, max_worker_processes và tải đồng thời."},"MEMOIZE":{"title":"Memoize ít trúng cache ({hits} trúng, {misses} trượt)","detail":"Cache bị đẩy ra {evictions} lần: số giá trị khác nhau nhiều hơn planner nghĩ.","fix":"Kiểm tra n_distinct của khoá tra cứu; có thể tắt enable_memoize cho câu này."},"JIT":{"title":"JIT tốn {jit} ({pct}% thời gian)","detail":"JIT được bật vì cost ước lượng vượt jit_above_cost.","fix":"Tăng jit_above_cost / jit_optimize_above_cost hoặc tắt jit cho workload này."},"TRIGGERS":{"title":"Trigger chiếm {ms} ({pct}% thời gian)","detail":"Trigger tốn nhất: {top} ({calls} lần gọi). RI_ConstraintTrigger là trigger kiểm tra khoá ngoại.","fix":"Bảng con của khoá ngoại cần index trên cột tham chiếu."},"PLANNING":{"title":"Lập kế hoạch ({planning}) lâu hơn thực thi ({exec})","detail":"Thời gian planner vượt thời gian chạy: nhiều partition, nhiều join hoặc thống kê rất lớn.","fix":"Dùng prepared statement (generic plan), giảm partition không cần, hoặc join_collapse_limit nhỏ hơn."},"NEVER_EXECUTED":{"title":"{count} node không bao giờ chạy","detail":"Các nhánh 'never executed' bị bỏ qua lúc chạy: partition pruning, phía ngoài rỗng, hoặc nhánh không cần đến.","fix":""}},"plans":[{"label":"PG13","source":"lab/results/case1_pg13.txt","format":"text","meta":{},"plan":{"Plan":{"Node Type":"ModifyTable","Operation":"Update","Relation Name":"customer_stats","Alias":"cs","Startup Cost":1514225.02,"Total Cost":1514737.8,"Plan Rows":200.0,"Plan Width":126,"Actual Startup Time":26941.021,"Actual Total Time":26941.027,"Actual Rows":0.0,"Actual Loops":1,"Plans":[{"Node Type":"Index Scan","Index Name":"orders_status_idx","Relation Name":"orders","Alias":"o","Startup Cost":0.43,"Total Cost":3147.87,"Plan Rows":38333.0,"Plan Width":10,"Actual Startup Time":160.239,"Actual Total Time":399.086,"Actual Rows":40000.0,"Actual Loops":1,"Plans":[],"Parent Relationship":"InitPlan","Subplan Name":"CTE open_orders","Index Cond":"(status = 'OPEN'::text)","Shared Hit Blocks":30801},{"Node Type":"Aggregate","Strategy":"Hashed","Partial Mode":"Simple","Startup Cost":1511074.23,"Total Cost":1511076.73,"Plan Rows":200.0,"Plan Width":44,"Actual Startup Time":26924.551,"Actual Total Time":26924.819,"Actual Rows":500.0,"Actual Loops":1,"Plans":[{"Node Type":"Hash Join","Join Type":"Inner","Startup Cost":32810.0,"Total Cost":936079.23,"Plan Rows":76666000.0,"Plan Width":20,"Actual Startup Time":350.382,"Actual Total Time":17476.904,"Actual Rows":80071993.0,"Actual Loops":1,"Plans":[{"Node Type":"CTE Scan","CTE Name":"open_orders","Alias":"oo","Startup Cost":0.0,"Total Cost":766.66,"Plan Rows":38333.0,"Plan Width":20,"Actual Startup Time":160.245,"Actual Total Time":453.862,"Actual Rows":40000.0,"Actual Loops":1,"Plans":[],"Parent Relationship":"Outer","Shared Hit Blocks":30801},{"Node Type":"Hash","Startup Cost":20310.0,"Total Cost":20310.0,"Plan Rows":1000000.0,"Plan Width":4,"Actual Startup Time":174.016,"Actual Total Time":174.018,"Actual Rows":1000000.0,"Actual Loops":1,"Plans":[{"Node Type":"Seq Scan","Relation Name":"complaints","Alias":"c","Startup Cost":0.0,"Total Cost":20310.0,"Plan Rows":1000000.0,"Plan Width":4,"Actual Startup Time":0.069,"Actual Total Time":78.873,"Actual Rows":1000000.0,"Actual Loops":1,"Plans":[],"Parent Relationship":"Outer","Shared Hit Blocks":10310}],"Parent Relationship":"Inner","Hash Buckets":1048576,"Original Hash Buckets":1048576,"Hash Batches":1,"Original Hash Batches":1,"Peak Memory Usage":43349.0,"Shared Hit Blocks":10310}],"Parent Relationship":"Outer","Hash Cond":"(oo.customer_id = c.customer_id)","Shared Hit Blocks":41111}],"Parent Relationship":"InitPlan","Subplan Name":"CTE per_customer","Group Key":["oo.customer_id"],"HashAgg Batches":1,"Peak Memory Usage":313.0,"Shared Hit Blocks":41111},{"Node Type":"Nested Loop","Join Type":"Inner","Startup Cost":0.42,"Total Cost":513.2,"Plan Rows":200.0,"Plan Width":126,"Actual Startup Time":26924.625,"Actual Total Time":26926.729,"Actual Rows":500.0,"Actual Loops":1,"Plans":[{"Node Type":"CTE Scan","CTE Name":"per_customer","Alias":"p","Startup Cost":0.0,"Total Cost":4.0,"Plan Rows":200.0,"Plan Width":112,"Actual Startup Time":26924.579,"Actual Total Time":26925.078,"Actual Rows":500.0,"Actual Loops":1,"Plans":[],"Parent Relationship":"Outer","Shared Hit Blocks":41111},{"Node Type":"Index Scan","Index Name":"customer_stats_pkey","Relation Name":"customer_stats","Alias":"cs","Startup Cost":0.42,"Total Cost":2.54,"Plan Rows":1.0,"Plan Width":10,"Actual Startup Time":0.003,"Actual Total Time":0.003,"Actual Rows":1.0,"Actual Loops":500,"Plans":[],"Parent Relationship":"Inner","Index Cond":"(customer_id = p.customer_id)","Shared Hit Blocks":2000,"Shared Dirtied Blocks":4}],"Parent Relationship":"Outer","Shared Hit Blocks":43111,"Shared Dirtied Blocks":4}],"Shared Hit Blocks":47053,"Shared Dirtied Blocks":19,"Shared Written Blocks":4},"Settings":{"random_page_cost":"1.1","work_mem":"64MB"},"Planning":{"Shared Hit Blocks":191},"Planning Time":0.432,"Execution Time":26963.202,"JIT":{"Functions":26,"Options":{"Inlining":true,"Optimization":true,"Expressions":true,"Deforming":true},"Timing":{"Generation":0.614,"Inlining":60.152,"Optimization":58.916,"Emission":41.239,"Total":160.921}}},"example":false},{"label":"PG17","source":"lab/results/case1_pg17.txt","format":"text","meta":{},"plan":{"Plan":{"Node Type":"ModifyTable","Operation":"Update","Relation Name":"customer_stats","Alias":"cs","Startup Cost":137756.27,"Total Cost":146660.78,"Plan Rows":0.0,"Plan Width":0,"Actual Startup Time":15533.82,"Actual Total Time":15533.831,"Actual Rows":0.0,"Actual Loops":1,"Plans":[{"Node Type":"Index Scan","Index Name":"orders_status_idx","Relation Name":"orders","Alias":"o","Startup Cost":0.43,"Total Cost":3623.59,"Plan Rows":42600.0,"Plan Width":10,"Actual Startup Time":7.398,"Actual Total Time":33.199,"Actual Rows":40000.0,"Actual Loops":1,"Plans":[],"Parent Relationship":"InitPlan","Subplan Name":"CTE open_orders","Index Cond":"(status = 'OPEN'::text)","Shared Hit Blocks":30801},{"Node Type":"Aggregate","Strategy":"Hashed","Partial Mode":"Simple","Startup Cost":134041.73,"Total Cost":134132.25,"Plan Rows":7242.0,"Plan Width":44,"Actual Startup Time":15529.927,"Actual Total Time":15530.128,"Actual Rows":500.0,"Actual Loops":1,"Plans":[{"Node Type":"Hash Join","Join Type":"Inner","Startup Cost":1384.92,"Total Cost":89924.15,"Plan Rows":5882343.0,"Plan Width":20,"Actual Startup Time":44.173,"Actual Total Time":5483.627,"Actual Rows":80071993.0,"Actual Loops":1,"Plans":[{"Node Type":"Index Only Scan","Index Name":"complaints_customer_idx","Relation Name":"complaints","Alias":"c","Startup Cost":0.42,"Total Cost":15966.22,"Plan Rows":1000000.0,"Plan Width":4,"Actual Startup Time":0.019,"Actual Total Time":98.031,"Actual Rows":1000000.0,"Actual Loops":1,"Plans":[],"Parent Relationship":"Outer","Heap Fetches":0,"Shared Hit Blocks":874},{"Node Type":"Hash","Startup Cost":852.0,"Total Cost":852.0,"Plan Rows":42600.0,"Plan Width":20,"Actual Startup Time":43.946,"Actual Total Time":43.947,"Actual Rows":40000.0,"Actual Loops":1,"Plans":[{"Node Type":"CTE Scan","CTE Name":"open_orders","Alias":"oo","Startup Cost":0.0,"Total Cost":852.0,"Plan Rows":42600.0,"Plan Width":20,"Actual Startup Time":7.403,"Actual Total Time":39.935,"Actual Rows":40000.0,"Actual Loops":1,"Plans":[],"Parent Relationship":"Outer","Shared Hit Blocks":30801}],"Parent Relationship":"Inner","Hash Buckets":65536,"Original Hash Buckets":65536,"Hash Batches":1,"Original Hash Batches":1,"Peak Memory Usage":2191.0,"Shared Hit Blocks":30801}],"Parent Relationship":"Outer","Hash Cond":"(c.customer_id = oo.customer_id)","Shared Hit Blocks":31675}],"Parent Relationship":"InitPlan","Subplan Name":"CTE per_customer","Group Key":["oo.customer_id"],"HashAgg Batches":1,"Peak Memory Usage":465.0,"Shared Hit Blocks":31675},{"Node Type":"Nested Loop","Join Type":"Inner","Startup Cost":0.42,"Total Cost":8904.93,"Plan Rows":7242.0,"Plan Width":122,"Actual Startup Time":15530.019,"Actual Total Time":15531.095,"Actual Rows":500.0,"Actual Loops":1,"Plans":[{"Node Type":"CTE Scan","CTE Name":"per_customer","Alias":"p","Startup Cost":0.0,"Total Cost":144.84,"Plan Rows":7242.0,"Plan Width":112,"Actual Startup Time":15529.959,"Actual Total Time":15530.329,"Actual Rows":500.0,"Actual Loops":1,"Plans":[],"Parent Relationship":"Outer","Shared Hit Blocks":31675},{"Node Type":"Index Scan","Index Name":"customer_stats_pkey","Relation Name":"customer_stats","Alias":"cs","Startup Cost":0.42,"Total Cost":1.2,"Plan Rows":1.0,"Plan Width":10,"Actual Startup Time":0.001,"Actual Total Time":0.001,"Actual Rows":1.0,"Actual Loops":500,"Plans":[],"Parent Relationship":"Inner","Index Cond":"(customer_id = p.customer_id)","Shared Hit Blocks":2000,"Shared Dirtied Blocks":4}],"Parent Relationship":"Outer","Shared Hit Blocks":33675,"Shared Dirtied Blocks":4}],"Shared Hit Blocks":37637,"Shared Dirtied Blocks":18,"Shared Written Blocks":4,"I/O Write Time":0.076},"Settings":{"work_mem":"64MB","random_page_cost":"1.1"},"Planning":{"Shared Hit Blocks":207},"Planning Time":0.526,"Execution Time":15549.783,"JIT":{"Functions":24,"Options":{"Inlining":false,"Optimization":false,"Expressions":true,"Deforming":true},"Timing":{"Generation":0.795,"Inlining":0.0,"Optimization":0.483,"Emission":7.881,"Total":9.159}}},"example":false}]}</script>
+<script>
+/* planviz core: parse EXPLAIN output (JSON or text) and analyse it.
+ * JavaScript port of planviz/loader.py + textplan.py + analyze.py so the HTML page can analyse plans pasted in the
+ * browser.  Keep the two in step: tests/test_planviz.py runs both on the sample plans and compares the results.
+ * Works in the browser (window.PlanvizCore) and in node (module.exports). */
+(function (root) {
+  "use strict";
+  var BUF_KEYS = ["Shared Hit Blocks", "Shared Read Blocks", "Shared Dirtied Blocks", "Shared Written Blocks",
+    "Local Hit Blocks", "Local Read Blocks", "Local Dirtied Blocks", "Local Written Blocks",
+    "Temp Read Blocks", "Temp Written Blocks"];
+  var JOIN_TYPES = ["Nested Loop", "Hash Join", "Merge Join"];
+  var SCAN_TYPES = ["Seq Scan", "Index Scan", "Index Only Scan", "Bitmap Heap Scan", "Bitmap Index Scan", "CTE Scan",
+    "Subquery Scan", "Function Scan", "Values Scan", "Tid Scan", "Tid Range Scan", "Foreign Scan",
+    "WorkTable Scan", "Sample Scan", "Table Function Scan", "Named Tuplestore Scan", "Custom Scan"];
+  var UNION_TYPES = ["Append", "Merge Append", "Recursive Union", "BitmapAnd", "BitmapOr"];
+  var RESCAN_COSTLY = ["Seq Scan", "CTE Scan", "Materialize", "Subquery Scan", "Function Scan", "Values Scan", "Sort",
+    "Aggregate", "Hash Join", "Merge Join", "Nested Loop", "WorkTable Scan", "Bitmap Heap Scan",
+    "Append", "Result", "Gather", "Unique", "SetOp", "WindowAgg"];
+  var COND_KEYS = ["Hash Cond", "Merge Cond", "Join Filter", "Index Cond", "Recheck Cond", "Filter", "Group Key",
+    "TID Cond", "One-Time Filter"];
+  var SEV_ORDER = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  var BLOCK = 8192;
+
+  function has(a, x) { return a.indexOf(x) >= 0; }
+  function num(v) { var f = parseFloat(v); return isFinite(f) ? f : 0; }
+  function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+
+  // ------------------------------------------------------------------ formatting (mirrors analyze.py)
+  function pyRound(x) { // Python 3 round(): half to even
+    var r = Math.round(x);
+    if (Math.abs(x % 1) === 0.5 && r % 2 !== 0) r -= 1;
+    return r;
+  }
+  function fixed(x, d) { return x.toFixed(d); }
+  function fmtMs(ms) {
+    if (ms === null || ms === undefined) return "–";
+    if (ms < 1) return fixed(ms, 3) + " ms";
+    if (ms < 10) return fixed(ms, 2) + " ms";
+    if (ms < 1000) return fixed(ms, 0) + " ms";
+    var s = ms / 1000;
+    if (s < 60) return s < 10 ? fixed(s, 1) + " s" : fixed(s, 0) + " s";
+    var tot = pyRound(s), m = Math.floor(tot / 60); s = tot % 60;
+    if (m < 60) return m + "m " + (s < 10 ? "0" : "") + s + "s";
+    var h = Math.floor(m / 60); m = m % 60;
+    return h + "h " + (m < 10 ? "0" : "") + m + "m";
+  }
+  function fmtNum(v) {
+    if (v === null || v === undefined) return "–";
+    var a = Math.abs(v), units = [[1e9, "B"], [1e6, "M"], [1e3, "K"]];
+    for (var i = 0; i < units.length; i++) {
+      if (a >= units[i][0]) {
+        var x = v / units[i][0];
+        return (Math.abs(x) < 100 ? fixed(x, 1) : fixed(x, 0)) + units[i][1];
+      }
+    }
+    if (a === Math.floor(a)) return String(v);
+    return fixed(v, 2).replace(/0+$/, "").replace(/\.$/, "");
+  }
+  function fmtBytes(b) {
+    if (b === null || b === undefined) return "–";
+    var units = [[1073741824, "GB"], [1048576, "MB"], [1024, "kB"]];
+    for (var i = 0; i < units.length; i++) {
+      if (b >= units[i][0]) { var x = b / units[i][0]; return (x < 100 ? fixed(x, 1) : fixed(x, 0)) + " " + units[i][1]; }
+    }
+    return fixed(b, 0) + " B";
+  }
+  function fmtFactor(lq) {
+    if (lq === null || lq === undefined) return "–";
+    var f = Math.pow(10, Math.abs(lq));
+    if (f < 1.5) return "≈1×";
+    var txt = fmtNum(f < 10 ? Math.round(f * 10) / 10 : pyRound(f));
+    return (lq > 0 ? "↑" : "↓") + txt + "×";
+  }
+  function parseMemKb(v) {
+    if (v === null || v === undefined) return null;
+    var m = /^\s*([\d.]+)\s*(B|kB|MB|GB|TB)?\s*$/.exec(String(v));
+    if (!m) return null;
+    return parseFloat(m[1]) * { B: 1 / 1024, kB: 1, MB: 1024, GB: 1048576, TB: 1073741824 }[m[2] || "kB"];
+  }
+
+  // ------------------------------------------------------------------ text EXPLAIN parser (port of textplan.py)
+  var NODE_RE = /^(\s*)(?:->\s+)?(.+?)\s+\(cost=([\d.]+)\.\.([\d.]+)\s+rows=([\d.]+)\s+width=(\d+)\)(?:\s+\((?:actual\s+)?(?:time=([\d.]+)\.\.([\d.]+)\s+)?rows=([\d.]+)\s+loops=(\d+)\)|\s+\((never executed)\))?\s*$/;
+  var SUBPLAN_RE = /^(\s*)(CTE|InitPlan|SubPlan)\s*(.*?)\s*$/;
+  var JOIN_RE = /^(Parallel\s+)?(Hash|Merge)\s+(?:(Left Anti|Left Semi|Right Anti|Right Semi|Left|Right|Full|Semi|Anti)\s+)?Join$/;
+  var NL_RE = /^Nested Loop(?:\s+(Left Anti|Left Semi|Right Anti|Right Semi|Left|Right|Full|Semi|Anti)\s+Join)?$/;
+  var AGG_RE = /^(?:(Partial|Finalize)\s+)?(HashAggregate|GroupAggregate|MixedAggregate|Aggregate)$/;
+  var AGG_STRATEGY = { HashAggregate: "Hashed", GroupAggregate: "Sorted", MixedAggregate: "Mixed", Aggregate: "Plain" };
+  var MODIFY_OPS = ["Insert", "Update", "Delete", "Merge"];
+
+  function kb(val) {
+    var m = /(-?[\d.]+)\s*(kB|MB|GB|B)?/.exec(val);
+    if (!m) return null;
+    return parseFloat(m[1]) * { B: 1 / 1024, kB: 1, MB: 1024, GB: 1048576 }[m[2] || "kB"];
+  }
+  function parseBody(body) {
+    var d = {}, rel = null, alias = null, idx = null, head = body, rest = null;
+    var m = /^(.*?)\s+using\s+(\S+)(?:\s+on\s+(.+))?$/.exec(body);
+    if (m && m[1].indexOf("Index") >= 0) { head = m[1]; idx = m[2]; rest = m[3] || null; }
+    else { var m2 = /^(.*?)\s+on\s+(.+)$/.exec(body); if (m2) { head = m2[1]; rest = m2[2]; } }
+    if (rest) { var toks = rest.split(/\s+/); rel = toks[0]; alias = toks.length > 1 ? toks[1] : null; }
+    head = head.trim();
+    if (head.indexOf("Parallel ") === 0 && !JOIN_RE.test(head)) { d["Parallel Aware"] = true; head = head.slice(9); }
+    var jm, am;
+    if (NL_RE.test(head)) { d["Node Type"] = "Nested Loop"; d["Join Type"] = NL_RE.exec(head)[1] || "Inner"; }
+    else if ((jm = JOIN_RE.exec(head))) {
+      d["Node Type"] = jm[2] + " Join"; d["Join Type"] = jm[3] || "Inner"; if (jm[1]) d["Parallel Aware"] = true;
+    } else if ((am = AGG_RE.exec(head))) {
+      d["Node Type"] = "Aggregate"; d["Strategy"] = AGG_STRATEGY[am[2]]; d["Partial Mode"] = am[1] || "Simple";
+    } else if (head === "HashSetOp" || head === "SetOp") {
+      d["Node Type"] = "SetOp"; d["Strategy"] = head === "HashSetOp" ? "Hashed" : "Sorted";
+    } else if (has(MODIFY_OPS, head)) { d["Node Type"] = "ModifyTable"; d["Operation"] = head; }
+    else d["Node Type"] = head;
+    var nt = d["Node Type"];
+    if (idx) d["Index Name"] = idx;
+    if (rel) {
+      if (nt === "CTE Scan") d["CTE Name"] = rel;
+      else if (nt === "Function Scan") d["Function Name"] = rel.split("(")[0];
+      else if (has(["Subquery Scan", "Values Scan", "WorkTable Scan", "Named Tuplestore Scan", "Table Function Scan"], nt)) { /* alias only */ }
+      else {
+        var parts = rel.split(".");
+        d["Relation Name"] = parts[parts.length - 1];
+        if (rel.indexOf(".") >= 0) d["Schema"] = parts[0];
+      }
+      var p2 = rel.split(".");
+      d["Alias"] = alias || p2[p2.length - 1];
+    }
+    return d;
+  }
+  function splitKv(text) {
+    var out = [];
+    text.trim().split(/\s{2,}/).forEach(function (p) {
+      var i = p.indexOf(":");
+      if (i >= 0) out.push([p.slice(0, i).trim(), p.slice(i + 1).trim()]);
+    });
+    return out;
+  }
+  function splitTopCommas(s) {
+    var out = [], depth = 0, cur = "";
+    for (var i = 0; i < s.length; i++) {
+      var ch = s[i];
+      if (ch === "(" || ch === "[") depth++;
+      else if (ch === ")" || ch === "]") depth--;
+      if (ch === "," && depth === 0) { out.push(cur); cur = ""; } else cur += ch;
+    }
+    if (cur.trim()) out.push(cur);
+    return out;
+  }
+  function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  function applyAttr(node, key, val) {
+    var nt = node["Node Type"], m, re;
+    if (key === "Buffers") {
+      re = /(shared|local|temp)\s+([^,]+)/g;
+      while ((m = re.exec(val))) {
+        var re2 = /(hit|read|dirtied|written)=(\d+)/g, m2;
+        while ((m2 = re2.exec(m[2]))) node[cap(m[1]) + " " + cap(m2[1]) + " Blocks"] = parseInt(m2[2], 10);
+      }
+      return;
+    }
+    if (key === "I/O Timings") {
+      m = /(?:shared\s+)?read=([\d.]+)/.exec(val); if (m) node["I/O Read Time"] = parseFloat(m[1]);
+      m = /(?:shared\s+)?write=([\d.]+)/.exec(val); if (m) node["I/O Write Time"] = parseFloat(m[1]);
+      return;
+    }
+    if (key === "Buckets") {
+      m = /^(\d+)(?:\s+\(originally\s+(\d+)\))?/.exec(val);
+      if (m) { node["Hash Buckets"] = parseInt(m[1], 10); node["Original Hash Buckets"] = parseInt(m[2] || m[1], 10); }
+      return;
+    }
+    if (key === "Batches") {
+      m = /^(\d+)(?:\s+\(originally\s+(\d+)\))?/.exec(val);
+      if (m) {
+        if (nt === "Hash") { node["Hash Batches"] = parseInt(m[1], 10); node["Original Hash Batches"] = parseInt(m[2] || m[1], 10); }
+        else node["HashAgg Batches"] = parseInt(m[1], 10);
+      }
+      return;
+    }
+    if (key === "Memory Usage" || key === "Memory" || key === "Peak Memory Usage") {
+      if (nt === "Sort" || nt === "Incremental Sort") { node["Sort Space Used"] = kb(val); node["Sort Space Type"] = "Memory"; }
+      else node["Peak Memory Usage"] = kb(val);
+      return;
+    }
+    if (key === "Disk Usage" || key === "Disk") {
+      if (nt === "Sort" || nt === "Incremental Sort") { node["Sort Space Used"] = kb(val); node["Sort Space Type"] = "Disk"; }
+      else node["Disk Usage"] = kb(val);
+      return;
+    }
+    if (has(["Hits", "Misses", "Evictions", "Overflows"], key)) { node["Cache " + key] = Math.trunc(parseFloat(val)); return; }
+    if (has(["Rows Removed by Filter", "Rows Removed by Join Filter", "Rows Removed by Index Recheck", "Heap Fetches",
+      "Workers Planned", "Workers Launched", "Planned Partitions", "Pre-sorted Groups", "Full-sort Groups", "Heap Blocks"], key)) {
+      var f = parseFloat(val.split(/\s+/)[0]);
+      if (isNaN(f)) node[key] = val;
+      else node[key] = key.indexOf("Rows Removed") === 0 ? f : Math.trunc(f);
+      return;
+    }
+    if (has(["Sort Key", "Group Key", "Presorted Key", "Cache Key", "Hash Key"], key)) {
+      node[key] = splitTopCommas(val).map(function (x) { return x.trim(); });
+      return;
+    }
+    node[key] = val;
+  }
+  function indentOf(ln) { return ln.length - ln.replace(/^\s+/, "").length; }
+
+  function parseTextPlan(text) {
+    var lines = text.split(/\r?\n/).map(function (l) { return l.replace(/\s+$/, ""); }).filter(function (l) { return l.trim(); });
+    var rootNode = null, stack = [], meta = {}, pendingRel = null, section = null, jit = {}, triggers = [];
+    var first = null;
+    for (var i = 0; i < lines.length; i++) if (NODE_RE.test(lines[i])) { first = lines[i]; break; }
+    if (first === null) first = lines.length ? lines[0] : "";
+    var baseIndent = indentOf(first);
+    lines.forEach(function (ln) {
+      var stripped = ln.trim(), indNow = indentOf(ln), top = indNow <= baseIndent, m;
+      if ((m = /^Planning Time:\s*([\d.]+)\s*ms/.exec(stripped)) && top) { meta["Planning Time"] = parseFloat(m[1]); section = null; return; }
+      if ((m = /^Execution Time:\s*([\d.]+)\s*ms/.exec(stripped)) && top) { meta["Execution Time"] = parseFloat(m[1]); section = null; return; }
+      if (stripped.indexOf("Total runtime:") === 0) { meta["Execution Time"] = parseFloat(stripped.match(/[\d.]+/)[0]); return; }
+      if (stripped === "JIT:" && top) { section = "JIT"; return; }
+      if (section === "JIT" && !top) {
+        if (stripped.indexOf("Functions:") === 0) jit["Functions"] = parseInt(stripped.split(":")[1], 10);
+        else if (stripped.indexOf("Options:") === 0) {
+          var o = {};
+          stripped.slice(stripped.indexOf(":") + 1).split(",").forEach(function (p) {
+            p = p.trim(); var k = p.lastIndexOf(" "); o[p.slice(0, k).trim()] = p.slice(k + 1).trim() === "true";
+          });
+          jit["Options"] = o;
+        } else if (stripped.indexOf("Timing:") === 0) {
+          var t = {}, re = /(Generation|Inlining|Optimization|Emission|Total)\s+([\d.]+)\s*ms/g, mm;
+          while ((mm = re.exec(stripped))) t[mm[1]] = parseFloat(mm[2]);
+          jit["Timing"] = t;
+        }
+        return;
+      }
+      if ((m = /^Trigger\s+(.+?):\s+time=([\d.]+)\s+calls=(\d+)/.exec(stripped)) && top) {
+        var cm = /for constraint (\S+)/.exec(m[1]);
+        triggers.push({ "Trigger Name": m[1], "Constraint Name": cm ? cm[1] : null, "Time": parseFloat(m[2]), "Calls": parseInt(m[3], 10) });
+        return;
+      }
+      if ((m = /^Query Identifier:\s*(-?\d+)/.exec(stripped)) && top) { meta["Query Identifier"] = m[1]; section = null; return; }
+      if (stripped === "Planning:" && top) { section = "Planning"; meta["Planning"] = meta["Planning"] || {}; return; }
+      if (section === "Planning" && !top) {
+        if (stripped.indexOf("Buffers:") === 0) applyAttr(meta["Planning"], "Buffers", stripped.slice(stripped.indexOf(":") + 1).trim());
+        else if (stripped.indexOf("Memory:") === 0) {
+          var rm = /(used|allocated)=([\d.]+\s*[kMG]?B)/g, x;
+          while ((x = rm.exec(stripped))) meta["Planning"]["Memory " + cap(x[1])] = kb(x[2]);
+        }
+        return;
+      }
+      if (stripped.indexOf("Serialization:") === 0 && top) { meta["Serialization"] = stripped.slice(stripped.indexOf(":") + 1).trim(); section = null; return; }
+      if (stripped.indexOf("Settings:") === 0 && top) {
+        var sett = {}, rs = /(\w+)\s*=\s*'([^']*)'/g, sm;
+        while ((sm = rs.exec(stripped))) sett[sm[1]] = sm[2];
+        meta["Settings"] = sett;
+        return;
+      }
+      section = null;
+      var nm = NODE_RE.exec(ln);
+      if (nm) {
+        var indent = indNow, node = parseBody(nm[2].trim());
+        node["Startup Cost"] = parseFloat(nm[3]); node["Total Cost"] = parseFloat(nm[4]);
+        node["Plan Rows"] = parseFloat(nm[5]); node["Plan Width"] = parseInt(nm[6], 10);
+        if (nm[10] !== undefined) {
+          if (nm[7] !== undefined) { node["Actual Startup Time"] = parseFloat(nm[7]); node["Actual Total Time"] = parseFloat(nm[8]); }
+          node["Actual Rows"] = parseFloat(nm[9]); node["Actual Loops"] = parseInt(nm[10], 10);
+        } else if (nm[11]) { node["Actual Rows"] = 0; node["Actual Loops"] = 0; node["Actual Total Time"] = 0; }
+        node["Plans"] = [];
+        if (rootNode === null) { rootNode = node; stack = [[indent, node]]; return; }
+        while (stack.length && stack[stack.length - 1][0] >= indent) stack.pop();
+        var parent = stack.length ? stack[stack.length - 1][1] : rootNode;
+        if (pendingRel && pendingRel[0] < indent) {
+          node["Parent Relationship"] = pendingRel[1];
+          if (pendingRel[2]) node["Subplan Name"] = pendingRel[2];
+          pendingRel = null;
+        } else {
+          var sibs = parent["Plans"].filter(function (c) { return !has(["InitPlan", "SubPlan"], c["Parent Relationship"]); });
+          if (has(JOIN_TYPES, parent["Node Type"])) node["Parent Relationship"] = sibs.length ? "Inner" : "Outer";
+          else if (parent["Node Type"] === "Append" || parent["Node Type"] === "Merge Append") node["Parent Relationship"] = "Member";
+          else if (parent["Node Type"] === "Subquery Scan") node["Parent Relationship"] = "Subquery";
+          else node["Parent Relationship"] = "Outer";
+        }
+        parent["Plans"].push(node);
+        stack.push([indent, node]);
+        return;
+      }
+      var sp = SUBPLAN_RE.exec(ln);
+      if (sp && stack.length && !/^\s*(CTE Scan)/.test(ln) && stripped.split(" ")[0].indexOf(":") < 0) {
+        var kind = sp[2], name = sp[3], relk = (kind === "CTE" || kind === "InitPlan") ? "InitPlan" : "SubPlan";
+        var subName = kind === "CTE" ? "CTE " + name : (kind + " " + name).trim();
+        pendingRel = [sp[1].length, relk, subName];
+        return;
+      }
+      if (stack.length && stripped.indexOf(":") >= 0) {
+        var ind = indentOf(ln), target = null;
+        for (var j = stack.length - 1; j >= 0; j--) if (stack[j][0] < ind) { target = stack[j][1]; break; }
+        target = target || stack[stack.length - 1][1];
+        var kvs = splitKv(stripped), firstKey = stripped.split(":")[0];
+        if (kvs.length > 1 && has(["Buckets", "Hits", "Batches", "Sort Method", "Planned Partitions", "Full-sort Groups", "Pre-sorted Groups"], firstKey)) {
+          kvs.forEach(function (kv) { applyAttr(target, kv[0], kv[1]); if (kv[0] === "Sort Method") target["Sort Method"] = kv[1]; });
+        } else {
+          var ci = stripped.indexOf(":"), k = stripped.slice(0, ci).trim(), v = stripped.slice(ci + 1).trim();
+          if (k === "Sort Method") {
+            var s2 = /^(.+?)\s{2,}(Memory|Disk):\s*(.+)$/.exec(v);
+            if (s2) { target["Sort Method"] = s2[1].trim(); target["Sort Space Type"] = s2[2]; target["Sort Space Used"] = kb(s2[3]); }
+            else target["Sort Method"] = v;
+          } else if (k === "Output") target["Output"] = splitTopCommas(v).map(function (x) { return x.trim(); });
+          else if (k.indexOf("Worker ") === 0) (target["Extra"] = target["Extra"] || []).push(stripped);
+          else applyAttr(target, k, v);
+        }
+        return;
+      }
+      if (stack.length) { var last = stack[stack.length - 1][1]; (last["Extra"] = last["Extra"] || []).push(stripped); }
+    });
+    if (rootNode === null) throw new Error("Không tìm thấy dòng node nào của plan – đây có phải output của EXPLAIN (có COSTS) không?");
+    if (Object.keys(jit).length) meta["JIT"] = jit;
+    if (triggers.length) meta["Triggers"] = triggers;
+    var out = { "Plan": rootNode };
+    Object.keys(meta).forEach(function (k) { out[k] = meta[k]; });
+    return out;
+  }
+
+  // ------------------------------------------------------------------ input normalisation (port of loader.py)
+  function stripPsql(text) {
+    var out = [];
+    text.split(/\r?\n/).forEach(function (ln) {
+      var s = ln.replace(/\s+$/, "");
+      if (/^\s*(SET|BEGIN|ROLLBACK|COMMIT|START TRANSACTION|RESET|DISCARD ALL|EXPLAIN)\s*;?\s*$/.test(s) || /^Time:\s*[\d.]+\s*ms/.test(s.trim())) return;
+      if (/^\s*QUERY PLAN\s*$/.test(s) || /^\s*-{5,}\s*$/.test(s) || /^\(\d+ rows?\)$/.test(s.trim())) return;
+      if (s.slice(-1) === "+") s = s.slice(0, -1).replace(/\s+$/, "");
+      out.push(s);
+    });
+    return out.join("\n");
+  }
+  function normaliseJson(obj) {
+    if (Array.isArray(obj)) { if (!obj.length) throw new Error("JSON EXPLAIN rỗng"); obj = obj[0]; }
+    if (!obj || typeof obj !== "object") throw new Error("Cấu trúc JSON không phải EXPLAIN");
+    if (!own(obj, "Plan")) {
+      if (own(obj, "Node Type")) return { "Plan": obj };
+      if (own(obj, "QUERY PLAN")) return normaliseJson(obj["QUERY PLAN"]);
+      throw new Error("JSON không có khoá 'Plan' – có phải EXPLAIN (FORMAT JSON) không?");
+    }
+    return obj;
+  }
+  function parseAny(text) {
+    var raw = text.trim().replace(/^﻿/, ""), cand = stripPsql(raw), blobs = [raw, cand];
+    for (var b = 0; b < blobs.length; b++) {
+      var blob = blobs[b], starts = [blob.indexOf("["), blob.indexOf("{")].filter(function (i) { return i >= 0; });
+      if (!starts.length) continue;
+      var start = Math.min.apply(null, starts), end = Math.max(blob.lastIndexOf("]"), blob.lastIndexOf("}"));
+      var chunks = [blob.slice(start)];
+      if (end > start) chunks.push(blob.slice(start, end + 1));
+      for (var c = 0; c < chunks.length; c++) {
+        try {
+          var o = normaliseJson(JSON.parse(chunks[c]));
+          // 64-bit query ids lose precision as JS numbers: keep the digits as text
+          var qm = /"Query Identifier"\s*:\s*(-?\d+)/.exec(chunks[c]);
+          if (qm) o["Query Identifier"] = qm[1];
+          return { obj: o, fmt: "json" };
+        } catch (e) { /* try next */ }
+      }
+    }
+    var lines = cand.split("\n");
+    for (var i = 0; i < lines.length; i++) {
+      if (/\(cost=[\d.]+\.\.[\d.]+ rows=/.test(lines[i])) { cand = lines.slice(i).join("\n"); break; }
+    }
+    return { obj: parseTextPlan(cand.replace(/\t/g, "  ")), fmt: "text" };
+  }
+
+  // ------------------------------------------------------------------ labels
+  function nodeLabel(r) {
+    var nt = r["Node Type"] || "?";
+    if (nt === "Aggregate") {
+      var base = { Plain: "Aggregate", Sorted: "GroupAggregate", Hashed: "HashAggregate", Mixed: "MixedAggregate" }[r["Strategy"] || "Plain"] || "Aggregate";
+      var pm = r["Partial Mode"] || "Simple";
+      return pm === "Simple" ? base : pm + " " + base;
+    }
+    if (nt === "SetOp") return r["Strategy"] === "Hashed" ? "HashSetOp" : "SetOp";
+    if (has(JOIN_TYPES, nt)) {
+      var jt = r["Join Type"] || "Inner", lbl;
+      if (nt === "Nested Loop") lbl = jt === "Inner" ? "Nested Loop" : "Nested Loop " + jt + " Join";
+      else { var b = nt.replace(" Join", ""); lbl = jt === "Inner" ? b + " Join" : b + " " + jt + " Join"; }
+      return r["Parallel Aware"] ? "Parallel " + lbl : lbl;
+    }
+    if (nt === "ModifyTable") return r["Operation"] || "Modify";
+    return r["Parallel Aware"] ? "Parallel " + nt : nt;
+  }
+  function nodeObject(r) {
+    var rel = r["Relation Name"], alias = r["Alias"], cte = r["CTE Name"];
+    if (cte) return cte + (alias && alias !== cte ? " " + alias : "");
+    if (rel) {
+      var name = r["Schema"] && r["Schema"] !== "public" ? r["Schema"] + "." + rel : rel;
+      return name + (alias && alias !== rel ? " " + alias : "");
+    }
+    if (r["Function Name"]) return r["Function Name"] + "()" + (alias && alias !== r["Function Name"] ? " " + alias : "");
+    if (alias && has(["Subquery Scan", "Values Scan", "WorkTable Scan", "Table Function Scan"], r["Node Type"])) return alias;
+    if (r["Index Name"] && r["Node Type"] === "Bitmap Index Scan") return r["Index Name"];
+    return "";
+  }
+  function target(r) {
+    if (r["CTE Name"]) return "cte:" + r["CTE Name"] + "/" + (r["Alias"] || "");
+    if (r["Relation Name"]) return r["Relation Name"] + "/" + (r["Alias"] || "");
+    if (r["Function Name"]) return "fn:" + r["Function Name"] + "/" + (r["Alias"] || "");
+    if (r["Node Type"] === "Bitmap Index Scan") return "idx:" + (r["Index Name"] || "");
+    if (has(["Subquery Scan", "Values Scan", "WorkTable Scan"], r["Node Type"]) && r["Alias"]) return "q:" + r["Alias"];
+    return "";
+  }
+
+  // ------------------------------------------------------------------ analysis (port of analyze.analyze)
+  function analyze(obj, label, meta) {
+    meta = meta || {};
+    var nodes = [];
+    function build(raw, parent, depth) {
+      var r = {};
+      Object.keys(raw).forEach(function (k) { if (k !== "Plans") r[k] = raw[k]; });
+      var id = nodes.length, n = {
+        id: id, parent: parent, depth: depth, children: [], raw: r, type: r["Node Type"] || "?", label: nodeLabel(r),
+        object: nodeObject(r), index: r["Index Name"] || "", rel: r["Parent Relationship"] || "", sub: r["Subplan Name"] || "",
+        est: num(r["Plan Rows"]), width: Math.trunc(num(r["Plan Width"])), cost: num(r["Total Cost"]),
+        startup_cost: num(r["Startup Cost"]), analyzed: own(r, "Actual Loops")
+      };
+      nodes.push(n);
+      (raw["Plans"] || []).forEach(function (ch) { n.children.push(build(ch, id, depth + 1)); });
+      return id;
+    }
+    build(obj["Plan"], null, 0);
+    var root = nodes[0], analyzed = root.analyzed;
+    var hasTiming = analyzed && nodes.some(function (n) { return n.analyzed && own(n.raw, "Actual Total Time"); });
+
+    nodes.forEach(function (n) {
+      var r = n.raw;
+      n.loops = n.analyzed ? num(r["Actual Loops"]) : null;
+      n.never = !!(n.analyzed && n.loops === 0);
+      n.rows = n.analyzed ? num(r["Actual Rows"]) : null;
+      var lp = n.analyzed ? Math.max(n.loops || 0, 1) : 1;
+      n.est_total = n.est * lp;
+      n.act_total = n.analyzed ? (n.rows || 0) * (n.loops || 0) : null;
+      n.lq = (n.analyzed && !n.never && n.type !== "ModifyTable") ? Math.log10(Math.max(n.rows, 1) / Math.max(n.est, 1)) : null;
+      var removed = num(r["Rows Removed by Filter"]) + num(r["Rows Removed by Join Filter"]) + num(r["Rows Removed by Index Recheck"]);
+      n.removed = n.analyzed ? removed * (n.loops || 0) : null;
+    });
+    function ancestorGather(n) {
+      var p = n.parent;
+      while (p !== null) { if (nodes[p].type === "Gather" || nodes[p].type === "Gather Merge") return nodes[p]; p = nodes[p].parent; }
+      return null;
+    }
+    nodes.forEach(function (n) {
+      var t = n.raw["Actual Total Time"];
+      if (!n.analyzed || t === undefined || t === null) { n.incl = null; return; }
+      if (n.never) { n.incl = 0; return; }
+      var g = ancestorGather(n), div = 1;
+      if (g) {
+        var w = num(own(g.raw, "Workers Launched") ? g.raw["Workers Launched"] : g.raw["Workers Planned"]);
+        div = Math.max(1, Math.min(n.loops, w + 1));
+      }
+      n.incl = parseFloat(t) * n.loops / div;
+    });
+    function isCteInit(c) { return c.rel === "InitPlan" && c.sub.indexOf("CTE ") === 0; }
+    var cteRoot = {};
+    nodes.forEach(function (c) { if (isCteInit(c)) cteRoot[c.sub.slice(4)] = c; });
+    var charged = {}, timeParent = {};
+    nodes.forEach(function (x) {
+      timeParent[x.id] = x.parent;
+      if (x.rel !== "InitPlan" || isCteInit(x) || x.parent === null) return;
+      var toks = initTokens(x.sub), u = toks.length ? firstUser(nodes, nodes[x.parent], x, toks) : null;
+      if (u && u.id !== x.parent) { charged[x.id] = u.id; timeParent[x.id] = u.id; }
+    });
+    ["incl"].concat(BUF_KEYS).forEach(function (key) {
+      var ek = key === "incl" ? "excl" : "x:" + key;
+      function val(n) { return key === "incl" ? n.incl : (own(n.raw, key) ? n.raw[key] : null); }
+      nodes.forEach(function (n) {
+        var v = val(n);
+        if (v === null || v === undefined) { n[ek] = null; return; }
+        var sub = 0;
+        n.children.forEach(function (cid) { var c = nodes[cid]; if (!isCteInit(c) && !own(charged, c.id)) sub += parseFloat(val(c) || 0); });
+        n[ek] = parseFloat(v) - sub;
+      });
+      Object.keys(charged).forEach(function (xid) {
+        var u = nodes[charged[xid]];
+        if (u[ek] !== null) u[ek] -= parseFloat(val(nodes[xid]) || 0);
+      });
+      Object.keys(cteRoot).forEach(function (name) {
+        var remaining = parseFloat(val(cteRoot[name]) || 0);
+        for (var i = 0; i < nodes.length && remaining > 0; i++) {
+          var s = nodes[i];
+          if (s.type === "CTE Scan" && s.raw["CTE Name"] === name && s[ek] !== null) {
+            var take = Math.min(remaining, Math.max(s[ek], 0));
+            s[ek] -= take; remaining -= take;
+            if (key === "incl" && take > 0 && timeParent[cteRoot[name].id] === cteRoot[name].parent) timeParent[cteRoot[name].id] = s.id;
+          }
+        }
+      });
+      nodes.forEach(function (n) { if (n[ek] !== null) n[ek] = Math.max(n[ek], 0); });
+    });
+    nodes.forEach(function (n) {
+      n.buf = {}; n.buf_excl = {};
+      BUF_KEYS.forEach(function (k) {
+        if (own(n.raw, k)) n.buf[k] = num(n.raw[k]);
+        if (n["x:" + k] !== null && n["x:" + k] !== undefined) n.buf_excl[k] = n["x:" + k];
+        delete n["x:" + k];
+      });
+    });
+    var execMs = own(obj, "Execution Time") ? obj["Execution Time"] : null;
+    var runtime = execMs !== null ? parseFloat(execMs) : root.incl;
+    nodes.forEach(function (n) { n.pct = (n.excl !== null && n.excl !== undefined && runtime) ? n.excl / runtime * 100 : null; });
+
+    function lq0(c) { return c.lq !== null ? c.lq : 0; }
+    nodes.forEach(function (n) {
+      n.base_lq = null; n.local_lq = null;
+      if (n.lq === null) return;
+      var data = n.children.map(function (c) { return nodes[c]; }).filter(function (c) { return c.rel !== "InitPlan" && c.rel !== "SubPlan"; });
+      var t = n.type, base;
+      if (t === "CTE Scan") { var src = cteRoot[n.raw["CTE Name"] || ""]; base = src ? lq0(src) : 0; }
+      else if (!data.length) base = 0;
+      else if (has(JOIN_TYPES, t) && data.length >= 2) {
+        var outer = data.filter(function (c) { return c.rel === "Outer"; })[0] || data[0];
+        var inner = data.filter(function (c) { return c.rel === "Inner"; })[0] || data[1];
+        var jt = n.raw["Join Type"] || "Inner";
+        if (jt === "Semi" || jt === "Anti") base = lq0(outer);
+        else if (jt === "Right Semi" || jt === "Right Anti") base = lq0(inner);
+        else base = lq0(outer) + lq0(inner);
+      } else if (has(UNION_TYPES, t)) {
+        var act = 0, est = 0;
+        data.forEach(function (c) { if (c.lq !== null) { act += c.rows || 0; est += c.est; } });
+        base = Math.log10(Math.max(act, 1) / Math.max(est, 1));
+      } else base = lq0(data[0]);
+      n.base_lq = base; n.local_lq = n.lq - base;
+    });
+
+    nodes.forEach(function (n) {
+      var scope = "main", p = n;
+      while (p) {
+        if ((p.rel === "InitPlan" || p.rel === "SubPlan") && p.sub) {
+          scope = p.sub.indexOf("CTE ") === 0 ? "cte:" + p.sub.slice(4) : "sub"; break;
+        }
+        p = p.parent !== null ? nodes[p.parent] : null;
+      }
+      n.scope = scope; n.hot = false;
+    });
+    nodes.forEach(function (n) { n.time_parent = timeParent[n.id]; });
+    if (hasTiming) {
+      var cur = root, seen = {};
+      while (cur && !seen[cur.id]) {
+        cur.hot = true; seen[cur.id] = true;
+        var cid = cur.id;
+        var kids = nodes.filter(function (k) { return k.time_parent === cid && k.incl !== null && k.incl !== undefined; });
+        if (!kids.length) break;
+        var nxt = kids.reduce(function (a, b) { return b.incl > a.incl ? b : a; });
+        if (runtime && nxt.incl < runtime * 0.05) break;
+        cur = nxt;
+      }
+    }
+    var summary = makeSummary(obj, nodes, runtime, analyzed, hasTiming, meta);
+    var insights = makeInsights(obj, nodes, summary);
+    nodes.forEach(function (n) {
+      n.insights = [];
+      insights.forEach(function (ins, i) { if (ins.node === n.id) n.insights.push(i); });
+    });
+    return { label: label || "", summary: summary, nodes: nodes, insights: insights };
+  }
+
+  function initTokens(sub) {
+    var toks = [], m = /^InitPlan (\d+)/.exec(sub || ""), re = /\$\d+/g, x;
+    if (m) toks.push("(InitPlan " + m[1] + ")");
+    while ((x = re.exec(sub || ""))) toks.push(x[0]);
+    return toks;
+  }
+  function mentions(raw, toks) {
+    var o = {};
+    Object.keys(raw).forEach(function (k) { if (k !== "Subplan Name" && k !== "Plans") o[k] = raw[k]; });
+    var text = JSON.stringify(o);
+    return toks.some(function (t) {
+      if (t.charAt(0) === "$") return new RegExp(t.replace("$", "\\$") + "(?!\\d)").test(text);
+      return text.indexOf(t) >= 0;
+    });
+  }
+  function firstUser(nodes, top, skip, toks) {
+    var stack = [top];
+    while (stack.length) {
+      var m = stack.pop();
+      if (m === skip) continue;
+      if (mentions(m.raw, toks)) return m;
+      for (var i = m.children.length - 1; i >= 0; i--) stack.push(nodes[m.children[i]]);
+    }
+    return null;
+  }
+  var PG17_PARAM = /\((?:hashed )?(?:SubPlan|InitPlan) \d+\)\.col\d+/;
+  function inferMajor(obj, nodes, meta) {
+    if (meta.server_version_num) { var v = parseInt(meta.server_version_num, 10); if (!isNaN(v)) return Math.floor(v / 10000); }
+    for (var i = 0; i < nodes.length; i++) {
+      var raw = nodes[i].raw;
+      for (var k in raw) {
+        var vals = Array.isArray(raw[k]) ? raw[k] : [raw[k]];
+        for (var j = 0; j < vals.length; j++) if (typeof vals[j] === "string" && PG17_PARAM.test(vals[j])) return 17;
+      }
+    }
+    return obj["Query Identifier"] !== undefined && obj["Query Identifier"] !== null ? 14 : null;
+  }
+  function makeSummary(obj, nodes, runtime, analyzed, hasTiming, meta) {
+    var root = nodes[0], jit = obj["JIT"] || {}, jt = (jit["Timing"] || {})["Total"];
+    if (jt && typeof jt === "object") jt = jt["Total"];
+    var triggers = obj["Triggers"] || [], worst = null, maxAbs = null;
+    nodes.forEach(function (n) {
+      if (n.lq === null) return;
+      if (worst === null || Math.abs(n.lq) > Math.abs(worst.lq)) worst = n;
+      maxAbs = maxAbs === null ? Math.abs(n.lq) : Math.max(maxAbs, Math.abs(n.lq));
+    });
+    var hasTemp = own(root.raw, "Temp Read Blocks") || own(root.raw, "Temp Written Blocks");
+    return {
+      analyzed: analyzed, has_timing: hasTiming, nodes: nodes.length,
+      execution_ms: own(obj, "Execution Time") ? obj["Execution Time"] : null,
+      planning_ms: own(obj, "Planning Time") ? obj["Planning Time"] : null, runtime_ms: runtime === undefined ? null : runtime,
+      jit_ms: (jt !== undefined && jt !== null) ? parseFloat(jt) : null,
+      trigger_ms: triggers.length ? triggers.reduce(function (a, t) { return a + num(t["Time"]); }, 0) : null,
+      triggers: triggers.map(function (t) { return { name: t["Trigger Name"], relation: t["Relation"], ms: num(t["Time"]), calls: num(t["Calls"]) }; }),
+      settings: obj["Settings"] || {}, query_id: own(obj, "Query Identifier") ? obj["Query Identifier"] : null,
+      max_abs_lq: maxAbs, worst_node: worst ? worst.id : null,
+      shared_hit: own(root.raw, "Shared Hit Blocks") ? num(root.raw["Shared Hit Blocks"]) : null,
+      shared_read: own(root.raw, "Shared Read Blocks") ? num(root.raw["Shared Read Blocks"]) : null,
+      temp_blocks: hasTemp ? num(root.raw["Temp Read Blocks"]) + num(root.raw["Temp Written Blocks"]) : null,
+      cost: root.cost, major: inferMajor(obj, nodes, meta)
+    };
+  }
+  function conds(r) {
+    var out = [];
+    COND_KEYS.forEach(function (k) { var v = r[k]; if (v && (!Array.isArray(v) || v.length)) out.push(k + ": " + (Array.isArray(v) ? v.join(", ") : v)); });
+    return out.join("; ");
+  }
+  function hashBudgetKb(settings, major) {
+    var wm = parseMemKb(settings["work_mem"]) || 4096, hm, src;
+    if (settings["hash_mem_multiplier"] !== undefined && settings["hash_mem_multiplier"] !== null) { hm = parseFloat(settings["hash_mem_multiplier"]); src = "Settings"; }
+    else if (major !== null && major <= 14) { hm = 1; src = "mặc định PG13/14"; }
+    else { hm = 2; src = "mặc định PG15+"; }
+    return { work_mem_kb: wm, hash_mem_multiplier: hm, budget_kb: wm * hm, hm_source: src };
+  }
+  function pyG(x) { return String(parseFloat(x.toPrecision(6))); }
+
+  function makeInsights(obj, nodes, s) {
+    var out = [], R = s.runtime_ms;
+    function add(rule, sev, nid, p) { out.push({ rule: rule, sev: sev, node: nid, p: p || {} }); }
+    function share(v) { return (v !== null && v !== undefined && R) ? v / R : 0; }
+    function name(n) { return (n.label + (n.object ? " " + n.object : "")).trim(); }
+    function rnd(x) { return pyRound(x); }
+
+    if (!s.analyzed) add("NO_ANALYZE", "info", null);
+    else if (!s.has_timing) add("NO_TIMING", "info", null);
+
+    var hot = nodes.filter(function (n) { return n.excl !== null && n.excl !== undefined; })
+      .slice().sort(function (a, b) { return b.excl - a.excl || a.id - b.id; });
+    hot.slice(0, 3).forEach(function (n) {
+      var sh = share(n.excl);
+      if (sh >= 0.25) add("HOTSPOT", sh >= 0.5 ? "high" : "medium", n.id, { node: name(n), pct: rnd(sh * 100), excl: fmtMs(n.excl), runtime: fmtMs(R) });
+    });
+
+    var budget = hashBudgetKb(s.settings, s.major), flagged = {};
+    nodes.forEach(function (n) {
+      if (n.rel !== "SubPlan" || !n.analyzed || (n.loops || 0) < 10) return;
+      var parent = n.parent !== null ? nodes[n.parent] : null;
+      var ptxt = parent ? JSON.stringify(parent.raw) : "", numS = n.sub.replace(/\D/g, "");
+      if (new RegExp("hashed (?:\\()?SubPlan " + numS + "\\b").test(ptxt)) return;
+      var sh = share(n.incl);
+      var sev = sh >= 0.5 ? "critical" : (sh >= 0.2 ? "high" : ((sh >= 0.05 || !R) ? "medium" : "low"));
+      var anyAll = /\b(?:ANY|ALL) \(/.test(ptxt) || ptxt.indexOf("NOT (ANY") >= 0;
+      var needKb = n.est * (Math.floor((n.width + 7) / 8) * 8 + 24) / 1024;
+      add("SUBPLAN_RESCAN", sev, n.id, {
+        sub: n.sub, loops: fmtNum(n.loops), rows: fmtNum(n.rows), read: fmtNum(n.act_total), pct: rnd(sh * 100),
+        notin: anyAll, est: fmtNum(n.est), width: n.width, need: fmtBytes(needKb * 1024),
+        budget: fmtBytes(budget.budget_kb * 1024), work_mem: fmtBytes(budget.work_mem_kb * 1024),
+        hm: pyG(budget.hash_mem_multiplier), hm_source: budget.hm_source, fits: needKb <= budget.budget_kb,
+        need_work_mem: fmtBytes(Math.ceil(needKb / budget.hash_mem_multiplier) * 1024)
+      });
+      flagged[n.id] = true;
+    });
+    function underFlagged(n) {
+      var p = n;
+      while (p) { if (flagged[p.id]) return true; p = p.parent !== null ? nodes[p.parent] : null; }
+      return false;
+    }
+    nodes.forEach(function (n) {
+      if (!has(RESCAN_COSTLY, n.type) || !n.analyzed || (n.loops || 0) < 1000 || n.rel === "SubPlan") return;
+      if (underFlagged(n)) return;
+      var sh = share(n.incl);
+      if (sh < 0.1 && (n.act_total || 0) < 1e6) return;
+      add("RESCAN", sh >= 0.5 ? "high" : "medium", n.id, { node: name(n), loops: fmtNum(n.loops), rows: fmtNum(n.rows), pct: rnd(sh * 100) });
+    });
+
+    var origins = nodes.filter(function (n) { return n.local_lq !== null && Math.abs(n.local_lq) >= 1; })
+      .sort(function (a, b) { return Math.abs(b.local_lq) - Math.abs(a.local_lq) || a.id - b.id; });
+    origins.slice(0, 6).forEach(function (n) {
+      var a = Math.abs(n.local_lq), sh = share(n.incl);
+      var sev = (a >= 3 || (a >= 2 && sh >= 0.2)) ? "high" : ((a >= 2 || sh >= 0.2) ? "medium" : "low");
+      add("MISEST", sev, n.id, {
+        node: name(n), dir: n.local_lq > 0 ? "thiếu" : "thừa", local: fmtFactor(n.local_lq), total: fmtFactor(n.lq),
+        base: fmtFactor(n.base_lq), est: fmtNum(n.est), rows: fmtNum(n.rows), cond: conds(n.raw) || "–", cte: n.type === "CTE Scan"
+      });
+    });
+
+    nodes.forEach(function (n) {
+      var r = n.raw, sh = share(n.incl), small = !!R && sh < 0.05;
+      if (r["Sort Space Type"] === "Disk") {
+        var k = num(r["Sort Space Used"]);
+        add("SORT_SPILL", small ? "low" : "medium", n.id, { node: name(n), disk: fmtBytes(k * 1024), need: fmtBytes(k * 1024 * 2) });
+      }
+      var hb = num(r["Hash Batches"]), ob = num(r["Original Hash Batches"]);
+      if (n.type === "Hash" && hb > 1) {
+        var peak = num(r["Peak Memory Usage"]);
+        add("HASH_SPILL", small ? "low" : "medium", n.id, { batches: fmtNum(hb), orig: fmtNum(ob || hb), grew: !!(ob && ob < hb), peak: fmtBytes(peak * 1024), need: fmtBytes(peak * hb * 1024) });
+      }
+      if (n.type === "Aggregate" && (num(r["HashAgg Batches"]) > 1 || num(r["Disk Usage"]) > 0)) {
+        add("HASHAGG_SPILL", small ? "low" : "medium", n.id, { batches: fmtNum(num(r["HashAgg Batches"])), disk: fmtBytes(num(r["Disk Usage"]) * 1024) });
+      }
+    });
+    var spilled = {};
+    out.forEach(function (i) { if (has(["SORT_SPILL", "HASH_SPILL", "HASHAGG_SPILL"], i.rule)) spilled[i.node] = true; });
+    nodes.forEach(function (n) {
+      var tw = (n.buf_excl || {})["Temp Written Blocks"] || 0;
+      if (tw >= 12800 && !spilled[n.id]) add("TEMP_IO", tw >= 131072 ? "medium" : "low", n.id, { node: name(n), size: fmtBytes(tw * BLOCK) });
+    });
+    nodes.forEach(function (n) {
+      var r = n.raw;
+      if (!n.analyzed || !has(SCAN_TYPES, n.type)) return;
+      var removed = n.removed || 0, act = n.act_total || 0, sh = share(n.incl);
+      if (removed >= 100000 && removed >= 9 * act && (sh >= 0.05 || !R)) {
+        add("FILTER_WASTE", sh >= 0.2 ? "medium" : "low", n.id, {
+          node: name(n), removed: fmtNum(removed), kept: fmtNum(act), pct: rnd(removed / Math.max(removed + act, 1) * 100),
+          seq: n.type === "Seq Scan", cte: n.type === "CTE Scan", idx: n.type !== "Seq Scan" && n.type !== "CTE Scan", cond: conds(r) || "–"
+        });
+      }
+      if (num(r["Lossy Heap Blocks"]) > 0 && num(r["Rows Removed by Index Recheck"]) * (n.loops || 0) >= 10000) {
+        add("LOSSY_BITMAP", "low", n.id, { lossy: fmtNum(num(r["Lossy Heap Blocks"])), recheck: fmtNum(num(r["Rows Removed by Index Recheck"]) * (n.loops || 0)) });
+      }
+      var hf = num(r["Heap Fetches"]) * (n.loops || 0);
+      if (n.type === "Index Only Scan" && hf >= 10000 && hf >= 0.5 * Math.max(act, 1)) add("HEAP_FETCHES", "low", n.id, { fetches: fmtNum(hf), rows: fmtNum(act) });
+    });
+    nodes.forEach(function (n) {
+      var r = n.raw;
+      if ((n.type === "Gather" || n.type === "Gather Merge") && own(r, "Workers Launched") && num(r["Workers Launched"]) < num(r["Workers Planned"])) {
+        add("WORKERS", "low", n.id, { planned: fmtNum(num(r["Workers Planned"])), launched: fmtNum(num(r["Workers Launched"])) });
+      }
+      if (n.type === "Memoize" && num(r["Cache Evictions"]) > 0) {
+        var hits = num(r["Cache Hits"]), misses = num(r["Cache Misses"]);
+        if (hits < misses) add("MEMOIZE", "low", n.id, { hits: fmtNum(hits), misses: fmtNum(misses), evictions: fmtNum(num(r["Cache Evictions"])) });
+      }
+    });
+    var E = s.execution_ms;
+    if (s.jit_ms !== null && E && s.jit_ms >= 0.1 * E && s.jit_ms >= 100) add("JIT", "medium", null, { jit: fmtMs(s.jit_ms), pct: rnd(s.jit_ms / E * 100) });
+    if (s.trigger_ms && E && s.trigger_ms >= 0.1 * E) {
+      var top = s.triggers.reduce(function (a, b) { return b.ms > a.ms ? b : a; });
+      add("TRIGGERS", s.trigger_ms >= 0.5 * E ? "high" : "medium", null, { ms: fmtMs(s.trigger_ms), pct: rnd(s.trigger_ms / E * 100), top: top.name || "?", calls: fmtNum(top.calls) });
+    }
+    var P = s.planning_ms;
+    if (P !== null && P >= 50 && (E === null || P > E)) add("PLANNING", "low", null, { planning: fmtMs(P), exec: fmtMs(E) });
+    var never = nodes.filter(function (n) { return n.never; }).length;
+    if (never) add("NEVER_EXECUTED", "info", null, { count: never });
+
+    out = out.map(function (o, i) { o._i = i; return o; });
+    out.sort(function (a, b) {
+      return (SEV_ORDER[a.sev] - SEV_ORDER[b.sev]) || ((a.node === null ? -1 : a.node) - (b.node === null ? -1 : b.node)) || (a._i - b._i);
+    });
+    out.forEach(function (o) { delete o._i; });
+    return out;
+  }
+
+  // ------------------------------------------------------------------ matching (port of analyze.match)
+  function signature(nodes, n) {
+    var leaves = [];
+    (function walk(m, top) {
+      if (!top && (m.rel === "InitPlan" || m.rel === "SubPlan")) return;
+      var t = target(m.raw);
+      if (t) leaves.push(t);
+      m.children.forEach(function (c) { walk(nodes[c], false); });
+    })(n, true);
+    leaves.sort();
+    return n.scope + "|" + leaves.join(",");
+  }
+  function category(n) {
+    if (has(SCAN_TYPES, n.type)) return "scan";
+    if (has(JOIN_TYPES, n.type)) return "join";
+    return n.type;
+  }
+  function match(a, b) {
+    var na = a.nodes, nb = b.nodes;
+    var sa = na.map(function (n) { return signature(na, n); }), sb = nb.map(function (n) { return signature(nb, n); });
+    var pairs = { 0: 0 }, used = { 0: true };
+    [function (n, s) { return s + "#" + n.type; }, function (n, s) { return s + "#" + category(n); }].forEach(function (keyf) {
+      var buckets = {};
+      nb.forEach(function (n) { if (!used[n.id]) { var k = keyf(n, sb[n.id]); (buckets[k] = buckets[k] || []).push(n.id); } });
+      na.forEach(function (n) {
+        if (own(pairs, n.id)) return;
+        var lst = buckets[keyf(n, sa[n.id])];
+        while (lst && lst.length && used[lst[0]]) lst.shift();
+        if (lst && lst.length) { var j = lst.shift(); pairs[n.id] = j; used[j] = true; }
+      });
+    });
+    return Object.keys(pairs).map(Number).sort(function (x, y) { return x - y; }).map(function (i) { return [i, pairs[i]]; });
+  }
+
+  function renderInsight(ins, rules) {
+    var tpl = rules[ins.rule] || {}, p = ins.p || {};
+    function fill(t) {
+      t = t.replace(/\{\?(\w+)\}([\s\S]*?)\{\/\1\}/g, function (m, k, body) { return p[k] ? body : ""; });
+      t = t.replace(/\{!(\w+)\}([\s\S]*?)\{\/\1\}/g, function (m, k, body) { return p[k] ? "" : body; });
+      return t.replace(/\{(\w+)\}/g, function (m, k) { return own(p, k) ? String(p[k]) : m; });
+    }
+    return { title: fill(tpl.title || ""), detail: fill(tpl.detail || ""), fix: fill(tpl.fix || "") };
+  }
+
+  var api = {
+    parseAny: parseAny, parseTextPlan: parseTextPlan, analyze: analyze, match: match, renderInsight: renderInsight,
+    fmtMs: fmtMs, fmtNum: fmtNum, fmtBytes: fmtBytes, fmtFactor: fmtFactor, nodeLabel: nodeLabel,
+    BUF_KEYS: BUF_KEYS, SEV_ORDER: SEV_ORDER, BLOCK: BLOCK, conds: conds
+  };
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else root.PlanvizCore = api;
+})(typeof window !== "undefined" ? window : this);
+
+</script>
+<script>
+/* planviz UI: renders the analyses produced by core.js. All text from plans goes through textContent. */
+(function () {
+  "use strict";
+  var C = window.PlanvizCore;
+  var DATA = JSON.parse(document.getElementById("planviz-data").textContent || "{}");
+  var RULES = DATA.rules || {};
+  var SEVL = RULES._severity || {};
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var state = { plans: [], cur: 0, sel: null, view: "graph", color: "time", sort: null, cmpA: 0, cmpB: 1, search: "",
+    tf: {}, icicleColor: "time", showAllFindings: false, matchCache: {} };
+
+  // ------------------------------------------------------------------ DOM helpers
+  function h(tag, attrs, kids) {
+    var el = document.createElement(tag);
+    setAttrs(el, attrs);
+    append(el, kids);
+    return el;
+  }
+  function s(tag, attrs, kids) {
+    var el = document.createElementNS(SVGNS, tag);
+    setAttrs(el, attrs);
+    append(el, kids);
+    return el;
+  }
+  function setAttrs(el, attrs) {
+    if (!attrs) return;
+    Object.keys(attrs).forEach(function (k) {
+      var v = attrs[k];
+      if (v === null || v === undefined || v === false) return;
+      if (k === "text") el.textContent = v;
+      else if (k.slice(0, 2) === "on") el.addEventListener(k.slice(2), v);
+      else if (k === "class") el.setAttribute("class", v);
+      else if (k === "style" && typeof v === "object") Object.keys(v).forEach(function (p) { el.style.setProperty(p, v[p]); });
+      else el.setAttribute(k, v === true ? "" : v);
+    });
+  }
+  function append(el, kids) {
+    if (kids === null || kids === undefined) return;
+    (Array.isArray(kids) ? kids : [kids]).forEach(function (k) {
+      if (k === null || k === undefined || k === false) return;
+      el.appendChild(typeof k === "string" || typeof k === "number" ? document.createTextNode(String(k)) : k);
+    });
+  }
+  function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+  function $(id) { return document.getElementById(id); }
+  function trunc(t, n) { t = t || ""; return t.length > n ? t.slice(0, Math.max(1, n - 1)) + "…" : t; }
+
+  // ------------------------------------------------------------------ data
+  function plan() { return state.plans[state.cur]; }
+  function addPlan(p) {
+    p.a = C.analyze(p.plan, p.label, p.meta || {});
+    state.plans.push(p);
+    return state.plans.length - 1;
+  }
+  function nodeName(n) { return (n.label + (n.object ? " " + n.object : "")).trim(); }
+  function bufSum(o, keys) { var t = 0; keys.forEach(function (k) { t += (o && o[k]) || 0; }); return t; }
+  var READ_KEYS = ["Shared Hit Blocks", "Shared Read Blocks", "Local Hit Blocks", "Local Read Blocks"];
+  var TEMP_KEYS = ["Temp Read Blocks", "Temp Written Blocks"];
+  function magBin(f) {
+    if (f === null || f === undefined || isNaN(f)) return "na";
+    return f < 0.01 ? "m0" : f < 0.05 ? "m1" : f < 0.15 ? "m2" : f < 0.35 ? "m3" : f < 0.65 ? "m4" : "m5";
+  }
+  function qBin(lq) {
+    if (lq === null || lq === undefined) return "na";
+    var a = Math.abs(lq);
+    if (a < 1) return "q0";
+    return (lq > 0 ? "u" : "o") + (a < 2 ? 1 : a < 3 ? 2 : 3);
+  }
+  function runtime(a) { return a.summary.runtime_ms; }
+  function metric(a, n, mode) {
+    var R = runtime(a);
+    if (mode === "lq") return { bin: qBin(n.lq), text: n.lq === null ? (n.never ? "never executed" : "–") : "sai số " + C.fmtFactor(n.lq) };
+    if (mode === "local") return { bin: qBin(n.local_lq), text: n.local_lq === null ? "–" : "tại chỗ " + C.fmtFactor(n.local_lq) };
+    if (mode === "reads" || mode === "temp") {
+      var keys = mode === "reads" ? READ_KEYS : TEMP_KEYS;
+      var v = bufSum(n.buf_excl, keys), tot = 0;
+      a.nodes.forEach(function (m) { tot += bufSum(m.buf_excl, keys); });
+      if (!Object.keys(n.buf || {}).length) return { bin: "na", text: "không có BUFFERS" };
+      return { bin: tot ? magBin(v / tot) : "m0", text: C.fmtBytes(v * C.BLOCK) + (tot ? " · " + Math.round(v / tot * 100) + "%" : "") };
+    }
+    if (n.excl === null || n.excl === undefined) return { bin: "na", text: a.summary.analyzed ? "không có thời gian" : "chỉ ước lượng" };
+    return { bin: R ? magBin(n.excl / R) : "na", text: (R ? Math.round(n.excl / R * 100) + "% · " : "") + C.fmtMs(n.excl) };
+  }
+  var MODES = [["time", "Thời gian riêng"], ["lq", "Sai số ước lượng"], ["local", "Sai số tại chỗ"], ["reads", "Buffers đọc (riêng)"], ["temp", "Ghi/đọc file tạm"]];
+  function legendFor(mode) {
+    var items;
+    if (mode === "lq" || mode === "local") {
+      items = [["o3", "thừa ≥1000×"], ["o2", "thừa 100–1000×"], ["o1", "thừa 10–100×"], ["q0", "trong 10×"], ["u1", "thiếu 10–100×"], ["u2", "thiếu 100–1000×"], ["u3", "thiếu ≥1000×"]];
+    } else {
+      items = [["m0", "<1%"], ["m1", "1–5%"], ["m2", "5–15%"], ["m3", "15–35%"], ["m4", "35–65%"], ["m5", "≥65%"]];
+    }
+    var lead = mode === "lq" ? "Sai số tích luỹ (thực tế ÷ ước lượng, mỗi loop):" : mode === "local" ? "Sai số sinh ra tại node (đã trừ phần kế thừa từ đầu vào):" :
+      mode === "time" ? "Phần trăm thời gian chạy:" : "Phần trăm tổng của cả plan:";
+    return h("div", { class: "legend" }, [h("span", { text: lead })].concat(items.map(function (it) {
+      return h("span", null, [h("span", { class: "sw f-" + it[0] }), it[1]]);
+    })));
+  }
+  function getMatch(i, j) {
+    var key = i + ":" + j;
+    if (!state.matchCache[key]) state.matchCache[key] = C.match(state.plans[i].a, state.plans[j].a);
+    return state.matchCache[key];
+  }
+  function counterpart(i, nid, j) {
+    var pairs = getMatch(Math.min(i, j), Math.max(i, j));
+    for (var k = 0; k < pairs.length; k++) {
+      if (i < j && pairs[k][0] === nid) return pairs[k][1];
+      if (i > j && pairs[k][1] === nid) return pairs[k][0];
+    }
+    return null;
+  }
+
+  // ------------------------------------------------------------------ header, KPIs, findings
+  function renderHeader() {
+    var box = $("plans");
+    clear(box);
+    state.plans.forEach(function (p, i) {
+      var t = p.a.summary.execution_ms !== null ? C.fmtMs(p.a.summary.execution_ms) : "EXPLAIN";
+      var chip = h("span", { class: "chip-plan", "aria-pressed": String(i === state.cur) }, [
+        h("button", { class: "btn small", style: { border: "0", background: "none", padding: "0" }, title: p.source || "", onclick: function () { switchPlan(i); } },
+          [h("b", { text: p.label }), " ", h("span", { class: "muted num", text: t })]),
+        h("button", { class: "x", title: "Bỏ plan này", "aria-label": "Bỏ plan " + p.label, text: "×", onclick: function () { removePlan(i); } })
+      ]);
+      box.appendChild(chip);
+    });
+  }
+  function kpi(label, value, sub) { return h("div", { class: "kpi" }, [h("span", { text: label }), h("b", { text: value, title: value }), sub ? h("em", { text: sub }) : null]); }
+  function renderKpis() {
+    var box = $("kpis");
+    clear(box);
+    if (!plan()) return;
+    var a = plan().a, S = a.summary;
+    box.appendChild(kpi("Thời gian thực thi", S.execution_ms !== null ? C.fmtMs(S.execution_ms) : "–", S.analyzed ? (S.trigger_ms ? "trigger " + C.fmtMs(S.trigger_ms) : null) : "chỉ EXPLAIN, không ANALYZE"));
+    if (state.plans.length > 1) {
+      var base = state.cur === 0 ? 1 : 0, b = state.plans[base].a.summary;
+      if (S.execution_ms && b.execution_ms) {
+        var r = S.execution_ms / b.execution_ms, same = r > 0.9 && r < 1.1;
+        box.appendChild(kpi("So với " + state.plans[base].label, same ? "≈" : (r >= 1 ? "×" + C.fmtNum(Math.round(r * 10) / 10) : "÷" + C.fmtNum(Math.round(10 / r) / 10)),
+          same ? "gần như nhau (" + C.fmtMs(b.execution_ms) + ")" : r >= 1 ? "chậm hơn" : "nhanh hơn"));
+      }
+    }
+    box.appendChild(kpi("Lập kế hoạch", S.planning_ms !== null ? C.fmtMs(S.planning_ms) : "–", null));
+    var worst = S.worst_node !== null ? a.nodes[S.worst_node] : null;
+    box.appendChild(kpi("Sai số lớn nhất", worst ? C.fmtFactor(worst.lq) : "–", worst ? "#" + worst.id + " " + trunc(nodeName(worst), 34) : null));
+    var hot = a.nodes.filter(function (n) { return n.excl !== null; }).sort(function (x, y) { return y.excl - x.excl; })[0];
+    if (hot && S.runtime_ms) box.appendChild(kpi("Điểm nóng", Math.round(hot.excl / S.runtime_ms * 100) + "%", "#" + hot.id + " " + trunc(nodeName(hot), 34)));
+    if (S.shared_hit !== null || S.shared_read !== null) {
+      var hit = S.shared_hit || 0, rd = S.shared_read || 0;
+      box.appendChild(kpi("Buffers shared", C.fmtBytes((hit + rd) * C.BLOCK), (hit + rd) ? Math.round(hit / (hit + rd) * 100) + "% từ cache" : null));
+    }
+    if (S.temp_blocks !== null) box.appendChild(kpi("File tạm", C.fmtBytes(S.temp_blocks * C.BLOCK), "đọc + ghi"));
+    box.appendChild(kpi("Số node", String(S.nodes), S.query_id !== null ? "query_id " + S.query_id : null));
+  }
+  function sevChip(sev) { return h("span", { class: "sev " + sev, text: SEVL[sev] || sev }); }
+  function renderFindings() {
+    var box = $("findings");
+    clear(box);
+    if (!plan()) return;
+    var a = plan().a, list = a.insights;
+    var head = h("div", { class: "findings-head" }, [h("h2", { text: "Phát hiện" }),
+      h("span", { class: "muted", text: list.length ? list.length + " mục, nặng nhất trước" : "Không có phát hiện nào đáng chú ý" })]);
+    box.appendChild(head);
+    var shown = state.showAllFindings ? list : list.slice(0, 5);
+    shown.forEach(function (ins, idx) {
+      var r = C.renderInsight(ins, RULES), n = ins.node !== null ? a.nodes[ins.node] : null;
+      var det = h("details", { class: "find" }, [
+        h("summary", null, [sevChip(ins.sev), h("span", { text: r.title }), n ? h("span", { class: "rule", text: "#" + n.id }) : h("span", { class: "rule", text: "plan" })]),
+        h("div", { class: "body" }, [
+          h("div", null, [h("b", { text: "Vì sao" }), r.detail]),
+          r.fix ? h("div", null, [h("b", { text: "Hướng xử lý" }), r.fix]) : null,
+          n ? h("div", null, [h("button", { class: "btn small go", text: "Xem node #" + n.id, onclick: function () { select(n.id, true); } }),
+            " ", h("span", { class: "rule", text: ins.rule })]) : h("span", { class: "rule", text: ins.rule })
+        ])
+      ]);
+      if (idx === 0 && ins.sev !== "info") det.open = true;
+      box.appendChild(det);
+    });
+    if (list.length > 5) {
+      box.appendChild(h("div", null, h("button", { class: "btn small", text: state.showAllFindings ? "Thu gọn" : "Xem tất cả " + list.length + " phát hiện",
+        onclick: function () { state.showAllFindings = !state.showAllFindings; renderFindings(); } })));
+    }
+  }
+
+  // ------------------------------------------------------------------ views
+  var VIEWS = [["graph", "Sơ đồ"], ["table", "Bảng cây"], ["scatter", "Ước lượng ↔ thực tế"], ["time", "Thời gian"], ["compare", "So sánh"]];
+  function renderTabs() {
+    var box = $("tabs");
+    clear(box);
+    VIEWS.forEach(function (v) {
+      box.appendChild(h("button", { class: "tab", role: "tab", "aria-selected": String(state.view === v[0]), text: v[1] + (v[0] === "compare" && state.plans.length > 1 ? " (" + state.plans.length + ")" : ""),
+        onclick: function () { state.view = v[0]; renderTabs(); renderView(); } }));
+    });
+  }
+  function renderView() {
+    var box = $("view");
+    clear(box);
+    hideTip();
+    if (!plan()) {
+      box.appendChild(h("div", { class: "empty" }, ["Chưa có plan nào. ", h("button", { class: "btn primary", text: "Mở plan…", onclick: openDialog }),
+        " hoặc kéo-thả file EXPLAIN vào trang."]));
+      return;
+    }
+    ({ graph: viewGraph, table: viewTable, scatter: viewScatter, time: viewTime, compare: viewCompare })[state.view](box);
+  }
+
+  // ---- diagram
+  var NW = 232, NH = 92, GX = 22, GY = 74, graphEls = {};
+  function layout(nodes) {
+    var w = {}, pos = {}, maxDepth = 0;
+    function sw(n) {
+      var kids = n.children.map(function (c) { return nodes[c]; });
+      if (!kids.length) return (w[n.id] = NW);
+      var t = 0;
+      kids.forEach(function (k) { t += sw(k); });
+      t += GX * (kids.length - 1);
+      return (w[n.id] = Math.max(NW, t));
+    }
+    function place(n, left, depth) {
+      maxDepth = Math.max(maxDepth, depth);
+      var cx = left + w[n.id] / 2;
+      pos[n.id] = { x: cx - NW / 2, y: depth * (NH + GY) };
+      var kids = n.children.map(function (c) { return nodes[c]; });
+      var tot = GX * (kids.length - 1);
+      kids.forEach(function (k) { tot += w[k.id]; });
+      var x = cx - tot / 2;
+      kids.forEach(function (k) { place(k, x, depth + 1); x += w[k.id] + GX; });
+    }
+    sw(nodes[0]);
+    place(nodes[0], 0, 0);
+    return { pos: pos, width: w[0], height: (maxDepth + 1) * (NH + GY) - GY };
+  }
+  function edgeWidth(n) {
+    var r = n.analyzed ? (n.act_total || 0) : n.est_total;
+    return Math.min(16, 1.5 + 2.4 * Math.log10(Math.max(r, 1)));
+  }
+  function searchHit(n, q) {
+    if (!q) return true;
+    var hay = (n.label + " " + n.object + " " + n.sub + " " + n.index + " " + C.conds(n.raw)).toLowerCase();
+    return hay.indexOf(q) >= 0;
+  }
+  function viewGraph(box) {
+    var a = plan().a, nodes = a.nodes;
+    var sel = h("select", { id: "colorby", "aria-label": "Tô màu node theo", onchange: function (e) { state.color = e.target.value; renderView(); } },
+      MODES.map(function (m) { var o = h("option", { value: m[0], text: m[1] }); if (m[0] === state.color) o.selected = true; return o; }));
+    var search = h("input", { type: "search", id: "nodesearch", placeholder: "Tìm bảng, CTE, điều kiện…", value: state.search, "aria-label": "Tìm node",
+      oninput: function (e) { state.search = e.target.value; applyGraphClasses(); } });
+    var panel = h("div", { class: "panel" }, [
+      h("div", { class: "tools" }, [h("label", null, ["Tô màu theo", sel]), h("label", null, [search]), h("span", { class: "sp" }),
+        h("span", { class: "muted", style: { "font-size": "12px" }, text: "Độ dày cạnh = số dòng đi lên node cha. Kéo để di chuyển, cuộn để phóng to." })]),
+      legendFor(state.color)
+    ]);
+    var L = layout(nodes);
+    var vp = s("g", { id: "vp" });
+    var svg = s("svg", { role: "img", "aria-label": "Sơ đồ cây plan" }, vp);
+    var canvas = h("div", { class: "canvas", id: "canvas" }, [svg]);
+    var zoom = h("div", { class: "zoom" }, [
+      h("button", { title: "Thu nhỏ", "aria-label": "Thu nhỏ", text: "−", onclick: function () { zoomBy(1 / 1.25); } }),
+      h("button", { title: "Vừa khung", "aria-label": "Vừa khung", text: "⤢", onclick: function () { fit(L); } }),
+      h("button", { title: "Phóng to", "aria-label": "Phóng to", text: "+", onclick: function () { zoomBy(1.25); } })
+    ]);
+    canvas.appendChild(zoom);
+    panel.appendChild(canvas);
+    box.appendChild(panel);
+    graphEls = {};
+    var eg = s("g"), ng = s("g"), lg = s("g");
+    vp.appendChild(eg); vp.appendChild(lg); vp.appendChild(ng);
+    nodes.forEach(function (n) {
+      var p = L.pos[n.id];
+      if (n.parent !== null) {
+        var pp = L.pos[n.parent], x1 = p.x + NW / 2, y1 = p.y, x2 = pp.x + NW / 2, y2 = pp.y + NH;
+        var cls = "edge" + (n.hot && a.nodes[n.parent].hot ? " hot" : "") + (n.rel === "InitPlan" || n.rel === "SubPlan" ? " sub" : "");
+        eg.appendChild(s("path", { class: cls, d: "M" + x1 + "," + y1 + " C" + x1 + "," + (y1 - GY / 2) + " " + x2 + "," + (y2 + GY / 2) + " " + x2 + "," + y2,
+          "stroke-width": edgeWidth(n).toFixed(1) }));
+        var rows = n.analyzed ? (n.never ? "0" : C.fmtNum(n.act_total)) : "~" + C.fmtNum(n.est_total);
+        lg.appendChild(s("text", { class: "elabel", x: x1 + 9, y: y1 - 8, text: rows + (n.analyzed && n.loops > 1 ? " (" + C.fmtNum(n.loops) + " loop)" : "") }));
+        if (n.sub) lg.appendChild(s("text", { class: "slabel", x: p.x, y: y1 - 26, text: trunc(n.sub, 34) }));
+      }
+      var g = s("g", { class: "nd", transform: "translate(" + p.x + "," + p.y + ")", tabindex: "0", role: "button", "aria-label": "#" + n.id + " " + nodeName(n),
+        onclick: function (ev) { if (!canvas._moved) select(n.id, false); }, onkeydown: function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(n.id, false); } } });
+      g.appendChild(s("title", { text: "#" + n.id + " " + nodeName(n) + (n.sub ? " [" + n.sub + "]" : "") }));
+      g.appendChild(s("rect", { class: "box", width: NW, height: NH, rx: 6 }));
+      var m = metric(a, n, state.color);
+      g.appendChild(s("rect", { class: "f-" + m.bin, width: NW, height: 24, rx: 6 }));
+      g.appendChild(s("rect", { class: "f-" + m.bin, y: 14, width: NW, height: 10 }));
+      g.appendChild(s("text", { class: "tb o-" + m.bin, x: 9, y: 16.5, text: trunc(m.text, 30) }));
+      if (n.insights.length) {
+        var top = a.insights[n.insights[0]];
+        g.appendChild(s("text", { class: "tb o-" + m.bin, x: NW - 9, y: 16.5, "text-anchor": "end", text: (SEVL[top.sev] || top.sev) + (n.insights.length > 1 ? " +" + (n.insights.length - 1) : "") }));
+      }
+      var loops = n.analyzed && n.loops > 1 ? "×" + C.fmtNum(n.loops) : "";
+      g.appendChild(s("text", { class: "t1", x: 9, y: 42, text: trunc("#" + n.id + " " + n.label, Math.floor((NW - 18 - loops.length * 7) / 7.4)) }));
+      if (loops) g.appendChild(s("text", { class: "loops", x: NW - 9, y: 42, "text-anchor": "end", text: loops }));
+      var sub2 = n.object || (n.index ? "idx " + n.index : "") || (C.conds(n.raw) || "");
+      g.appendChild(s("text", { class: "t2", x: 9, y: 60, text: trunc(sub2, 31) }));
+      var rowTxt;
+      if (!n.analyzed) rowTxt = "ước lượng " + C.fmtNum(n.est) + " dòng";
+      else if (n.never) rowTxt = "never executed";
+      else rowTxt = C.fmtNum(n.est) + " → " + C.fmtNum(n.rows) + " dòng";
+      g.appendChild(s("text", { class: "t3", x: 9, y: 80, text: rowTxt }));
+      if (n.lq !== null) {
+        var qb = qBin(n.lq), qt = C.fmtFactor(n.lq), qw = 10 + qt.length * 7;
+        g.appendChild(s("rect", { class: "f-" + qb, x: NW - 9 - qw, y: 67, width: qw, height: 18, rx: 3 }));
+        g.appendChild(s("text", { class: "tb o-" + qb, x: NW - 9 - qw / 2, y: 80, "text-anchor": "middle", text: qt }));
+      }
+      if (n.hot) g.setAttribute("class", "nd hot");
+      ng.appendChild(g);
+      graphEls[n.id] = g;
+    });
+    enablePanZoom(canvas, vp, L);
+    applyGraphClasses();
+    var tf = state.tf[state.cur];
+    if (tf) applyTf(vp, tf); else requestAnimationFrame(function () { fit(L); if (state.sel !== null) centerOn(state.sel, true); });
+  }
+  function applyGraphClasses() {
+    var a = plan() && plan().a;
+    if (!a) return;
+    var q = (state.search || "").trim().toLowerCase();
+    a.nodes.forEach(function (n) {
+      var g = graphEls[n.id];
+      if (!g) return;
+      var cls = "nd" + (n.hot ? " hot" : "") + (n.id === state.sel ? " sel" : "") + (q && !searchHit(n, q) ? " dim" : "");
+      g.setAttribute("class", cls);
+    });
+  }
+  function applyTf(vp, tf) { vp.setAttribute("transform", "translate(" + tf.x.toFixed(1) + "," + tf.y.toFixed(1) + ") scale(" + tf.k.toFixed(4) + ")"); }
+  function curTf() { return state.tf[state.cur] || (state.tf[state.cur] = { k: 1, x: 20, y: 20 }); }
+  function fit(L) {
+    var c = $("canvas");
+    if (!c) return;
+    var cw = c.clientWidth || 900, ch = c.clientHeight || 600;
+    var k = Math.max(0.2, Math.min(1.1, (cw - 40) / L.width, (ch - 40) / (L.height + 40)));
+    state.tf[state.cur] = { k: k, x: (cw - L.width * k) / 2, y: 36 };
+    applyTf($("vp"), state.tf[state.cur]);
+  }
+  function zoomBy(f, cx, cy) {
+    var c = $("canvas"), tf = curTf();
+    if (!c) return;
+    if (cx === undefined) { cx = c.clientWidth / 2; cy = c.clientHeight / 2; }
+    var k = Math.max(0.1, Math.min(3, tf.k * f));
+    tf.x = cx - (cx - tf.x) * (k / tf.k);
+    tf.y = cy - (cy - tf.y) * (k / tf.k);
+    tf.k = k;
+    applyTf($("vp"), tf);
+  }
+  function enablePanZoom(canvas, vp, L) {
+    var start = null;
+    canvas.addEventListener("wheel", function (e) {
+      e.preventDefault();
+      var r = canvas.getBoundingClientRect();
+      zoomBy(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+    }, { passive: false });
+    canvas.addEventListener("pointerdown", function (e) {
+      if (e.button !== 0) return;
+      var tf = curTf();
+      start = { x: e.clientX, y: e.clientY, tx: tf.x, ty: tf.y, id: e.pointerId };
+      canvas._moved = false;
+    });
+    canvas.addEventListener("pointermove", function (e) {
+      if (!start) return;
+      var dx = e.clientX - start.x, dy = e.clientY - start.y;
+      if (!canvas._moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+      if (!canvas._moved) { canvas._moved = true; canvas.classList.add("dragging"); try { canvas.setPointerCapture(start.id); } catch (err) { /* ignore */ } }
+      var tf = curTf();
+      tf.x = start.tx + dx; tf.y = start.ty + dy;
+      applyTf(vp, tf);
+    });
+    function end() { start = null; canvas.classList.remove("dragging"); setTimeout(function () { canvas._moved = false; }, 0); }
+    canvas.addEventListener("pointerup", end);
+    canvas.addEventListener("pointercancel", end);
+  }
+  function centerOn(id, onlyIfHidden) {
+    var c = $("canvas"), g = graphEls[id];
+    if (!c || !g) return;
+    var L = layout(plan().a.nodes), p = L.pos[id], tf = curTf();
+    var sx = p.x * tf.k + tf.x, sy = p.y * tf.k + tf.y, cw = c.clientWidth, ch = c.clientHeight;
+    if (onlyIfHidden && sx > 10 && sy > 10 && sx + NW * tf.k < cw - 10 && sy + NH * tf.k < ch - 10) return;
+    tf.x = cw / 2 - (p.x + NW / 2) * tf.k;
+    tf.y = ch / 2 - (p.y + NH / 2) * tf.k;
+    applyTf($("vp"), tf);
+  }
+
+  // ---- tree table
+  var COLS = [
+    { k: "id", t: "#", v: function (n) { return n.id; } },
+    { k: "node", t: "Node", l: true },
+    { k: "excl", t: "Riêng", v: function (n) { return n.excl; } },
+    { k: "incl", t: "Tổng", v: function (n) { return n.incl; } },
+    { k: "est", t: "Ước lượng", v: function (n) { return n.est; } },
+    { k: "rows", t: "Thực tế", v: function (n) { return n.rows; } },
+    { k: "lq", t: "Sai số", v: function (n) { return n.lq === null ? null : Math.abs(n.lq); } },
+    { k: "local", t: "Tại chỗ", v: function (n) { return n.local_lq === null ? null : Math.abs(n.local_lq); } },
+    { k: "loops", t: "Loops", v: function (n) { return n.loops; } },
+    { k: "reads", t: "Buffers", v: function (n) { return bufSum(n.buf_excl, READ_KEYS); } },
+    { k: "temp", t: "Tạm", v: function (n) { return bufSum(n.buf_excl, TEMP_KEYS); } }
+  ];
+  function viewTable(box) {
+    var a = plan().a, R = runtime(a);
+    var panel = h("div", { class: "panel" }, [h("div", { class: "tools" }, [
+      h("span", { class: "muted", style: { "font-size": "12.5px" }, text: "Số dòng là mỗi loop, như EXPLAIN in ra. Buffers và Tạm là phần riêng của node (đã trừ node con). Bấm tiêu đề cột để sắp xếp." }),
+      h("span", { class: "sp" }),
+      state.sort ? h("button", { class: "btn small", text: "Về thứ tự cây", onclick: function () { state.sort = null; renderView(); } }) : null
+    ])]);
+    var order = a.nodes.slice();
+    if (state.sort) {
+      var col = COLS.filter(function (c) { return c.k === state.sort.k; })[0];
+      order.sort(function (x, y) {
+        var vx = col.v(x), vy = col.v(y);
+        if (vx === null || vx === undefined) return 1;
+        if (vy === null || vy === undefined) return -1;
+        return state.sort.dir * (vy - vx) || x.id - y.id;
+      });
+    }
+    var thead = h("tr", null, COLS.map(function (c) {
+      var th = h("th", { class: c.l ? "l" : null, scope: "col" });
+      if (c.v) {
+        if (state.sort && state.sort.k === c.k) th.setAttribute("aria-sort", state.sort.dir === 1 ? "descending" : "ascending");
+        th.appendChild(h("button", { text: c.t, onclick: function () {
+          state.sort = state.sort && state.sort.k === c.k ? (state.sort.dir === 1 ? { k: c.k, dir: -1 } : null) : { k: c.k, dir: 1 };
+          renderView();
+        } }));
+      } else th.textContent = c.t;
+      return th;
+    }));
+    var tb = h("tbody");
+    order.forEach(function (n) {
+      var m = metric(a, n, "time");
+      var nodeCell = h("td", { class: "l nodecell", title: nodeName(n) + (C.conds(n.raw) ? "\n" + C.conds(n.raw) : "") }, [
+        state.sort ? null : h("span", { style: { "padding-left": (n.depth * 14) + "px" } }),
+        n.parent !== null ? h("span", { class: "arrow", text: "→ " }) : null,
+        n.sub ? h("span", { class: "subn", text: "[" + n.sub + "] " }) : null,
+        h("b", { text: n.label }), n.object ? " " + n.object : (n.index ? " " + n.index : "")
+      ]);
+      var tr = h("tr", { class: (n.id === state.sel ? "sel" : ""), "data-id": n.id, onclick: function () { select(n.id, false); } }, [
+        h("td", { class: "muted", text: "#" + n.id }),
+        nodeCell,
+        h("td", null, h("span", { class: "cell f-" + m.bin, text: n.excl === null ? "–" : C.fmtMs(n.excl) + (R ? " · " + Math.round(n.excl / R * 100) + "%" : "") })),
+        h("td", { text: C.fmtMs(n.incl) }),
+        h("td", { text: C.fmtNum(n.est), title: "tổng " + C.fmtNum(n.est_total) }),
+        h("td", { text: n.analyzed ? (n.never ? "never" : C.fmtNum(n.rows)) : "–", title: n.analyzed ? "tổng " + C.fmtNum(n.act_total) : "" }),
+        h("td", null, h("span", { class: "cell f-" + qBin(n.lq), text: C.fmtFactor(n.lq) })),
+        h("td", null, h("span", { class: "cell f-" + qBin(n.local_lq), text: C.fmtFactor(n.local_lq) })),
+        h("td", { text: n.analyzed ? C.fmtNum(n.loops) : "–" }),
+        h("td", { text: Object.keys(n.buf).length ? C.fmtBytes(bufSum(n.buf_excl, READ_KEYS) * C.BLOCK) : "–" }),
+        h("td", { text: bufSum(n.buf_excl, TEMP_KEYS) ? C.fmtBytes(bufSum(n.buf_excl, TEMP_KEYS) * C.BLOCK) : "" })
+      ]);
+      tb.appendChild(tr);
+    });
+    panel.appendChild(h("div", { class: "tablewrap" }, h("table", { class: "grid" }, [h("thead", null, thead), tb])));
+    box.appendChild(panel);
+  }
+
+  // ---- tooltip
+  var tipEl = null;
+  function showTip(host, x, y, kids) {
+    hideTip();
+    tipEl = h("div", { class: "tip" }, kids);
+    host.appendChild(tipEl);
+    var hw = host.clientWidth, tw = tipEl.offsetWidth, th = tipEl.offsetHeight;
+    var left = x + 14 + tw > hw ? x - tw - 14 : x + 14;
+    tipEl.style.left = Math.max(4, left) + "px";
+    tipEl.style.top = Math.max(4, y - th - 10) + "px";
+  }
+  function hideTip() { if (tipEl && tipEl.parentNode) tipEl.parentNode.removeChild(tipEl); tipEl = null; }
+  function nodeTip(n, a) {
+    return [h("b", { text: n.lq === null ? C.fmtMs(n.excl) : C.fmtFactor(n.lq) }), h("div", { text: "#" + n.id + " " + nodeName(n) }),
+      h("div", null, [h("span", { class: "k", text: "mỗi loop: ước lượng " }), C.fmtNum(n.est), h("span", { class: "k", text: " → thực tế " }), n.never ? "never" : C.fmtNum(n.rows)]),
+      n.loops > 1 ? h("div", null, [h("span", { class: "k", text: "loops " }), C.fmtNum(n.loops), h("span", { class: "k", text: " · tổng " }), C.fmtNum(n.est_total) + " → " + C.fmtNum(n.act_total)]) : null,
+      n.local_lq !== null && Math.abs(n.local_lq) >= 0.18 ? h("div", null, [h("span", { class: "k", text: "sinh ra tại chỗ " }), C.fmtFactor(n.local_lq)]) : null,
+      n.excl !== null ? h("div", null, [h("span", { class: "k", text: "thời gian riêng " }), C.fmtMs(n.excl) + (runtime(a) ? " (" + Math.round(n.excl / runtime(a) * 100) + "%)" : "")]) : null];
+  }
+
+  // ---- estimate vs actual scatter (log-log)
+  function logTicks(D) { var t = []; for (var d = 0; d <= D; d++) t.push(d); return t; }
+  function scatterFrame(svg, D, W, H, M) {
+    var pw = W - M.l - M.r, ph = H - M.t - M.b;
+    var X = function (v) { return M.l + v / D * pw; }, Y = function (v) { return M.t + ph - v / D * ph; };
+    var band = [[0, 0], [1, 0], [D, D - 1], [D, D], [D - 1, D], [0, 1]].map(function (p) { return X(p[0]).toFixed(1) + "," + Y(p[1]).toFixed(1); }).join(" ");
+    svg.appendChild(s("polygon", { class: "band", points: band }));
+    logTicks(D).forEach(function (d) {
+      svg.appendChild(s("line", { class: "gridl", x1: X(d), x2: X(d), y1: M.t, y2: M.t + ph }));
+      svg.appendChild(s("line", { class: "gridl", x1: M.l, x2: M.l + pw, y1: Y(d), y2: Y(d) }));
+      svg.appendChild(s("text", { class: "tick", x: X(d), y: M.t + ph + 18, "text-anchor": "middle", text: C.fmtNum(Math.pow(10, d)) }));
+      svg.appendChild(s("text", { class: "tick", x: M.l - 8, y: Y(d) + 4, "text-anchor": "end", text: C.fmtNum(Math.pow(10, d)) }));
+    });
+    svg.appendChild(s("line", { class: "axisl", x1: M.l, x2: M.l + pw, y1: M.t + ph, y2: M.t + ph }));
+    svg.appendChild(s("line", { class: "axisl", x1: M.l, x2: M.l, y1: M.t, y2: M.t + ph }));
+    svg.appendChild(s("line", { class: "diag", x1: X(0), y1: Y(0), x2: X(D), y2: Y(D) }));
+    svg.appendChild(s("text", { class: "atitle", x: M.l + pw / 2, y: H - 8, "text-anchor": "middle", text: "Số dòng planner ước lượng mỗi loop (thang log)" }));
+    svg.appendChild(s("text", { class: "atitle", transform: "translate(16," + (M.t + ph / 2) + ") rotate(-90)", "text-anchor": "middle", text: "Số dòng thực tế mỗi loop (thang log)" }));
+    svg.appendChild(s("text", { class: "tick", x: X(0.15), y: Y(D - 0.25), text: "↑ thực tế nhiều hơn: ước lượng thiếu" }));
+    svg.appendChild(s("text", { class: "tick", x: X(D - 0.15), y: Y(0.3), "text-anchor": "end", text: "ước lượng thừa ↓" }));
+    var ang = Math.atan2(-(ph / D), pw / D) * 180 / Math.PI, lx = X(D * 0.5), ly = Y(D * 0.5) - 7;
+    svg.appendChild(s("text", { class: "tick", x: lx, y: ly, "text-anchor": "middle", transform: "rotate(" + ang.toFixed(1) + " " + lx.toFixed(1) + " " + ly.toFixed(1) + ")", text: "ước lượng đúng" }));
+    return { X: X, Y: Y, W: W, H: H };
+  }
+  // direct labels without collisions: try right, left, above, below of the mark; skip if all overlap
+  function placeLabels(svg, sc, items) {
+    var boxes = [];
+    items.forEach(function (it) {
+      var w = it.text.length * 6.6 + 4, hgt = 15, r = it.r || 6, cands = [
+        [it.x + r + 5, it.y + 4, "start"], [it.x - r - 5, it.y + 4, "end"], [it.x, it.y - r - 6, "middle"], [it.x, it.y + r + 14, "middle"]];
+      for (var i = 0; i < cands.length; i++) {
+        var c = cands[i], x0 = c[2] === "start" ? c[0] : c[2] === "end" ? c[0] - w : c[0] - w / 2, y0 = c[1] - 11;
+        if (x0 < 2 || x0 + w > sc.W - 2 || y0 < 2 || y0 + hgt > sc.H - 2) continue;
+        var hit = boxes.some(function (b) { return x0 < b[0] + b[2] && b[0] < x0 + w && y0 < b[1] + b[3] && b[1] < y0 + hgt; });
+        if (hit) continue;
+        boxes.push([x0, y0, w, hgt]);
+        svg.appendChild(s("text", { class: "dlabel", x: c[0], y: c[1], "text-anchor": c[2], text: it.text }));
+        return;
+      }
+    });
+  }
+  function viewScatter(box) {
+    var a = plan().a;
+    var pts = a.nodes.filter(function (n) { return n.lq !== null; });
+    var panel = h("div", { class: "panel" }, [
+      h("div", { class: "tools" }, [h("span", { class: "muted", style: { "font-size": "12.5px" },
+        text: "Mỗi chấm là một node. Đường chéo là ước lượng đúng; vùng xám là sai trong vòng 10×. Diện tích chấm tỉ lệ thời gian riêng. Bấm chấm để xem node." })]),
+      legendFor("lq")
+    ]);
+    if (!pts.length) {
+      panel.appendChild(h("div", { class: "empty", text: "Plan không có số dòng thực tế (chưa ANALYZE), nên không vẽ được biểu đồ này." }));
+      box.appendChild(panel);
+      return;
+    }
+    var maxV = 1;
+    pts.forEach(function (n) { maxV = Math.max(maxV, n.est, n.rows || 0); });
+    var D = Math.max(2, Math.ceil(Math.log10(maxV) + 0.05));
+    var W = 760, H = 600, M = { l: 70, r: 24, t: 18, b: 56 };
+    var svg = s("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Biểu đồ ước lượng so với thực tế" });
+    var sc = scatterFrame(svg, D, W, H, M);
+    var maxEx = 0;
+    pts.forEach(function (n) { maxEx = Math.max(maxEx, n.excl || 0); });
+    var host = h("div", { class: "chart" });
+    var items = pts.map(function (n) {
+      var r = maxEx > 0 && n.excl !== null ? 4 + 14 * Math.sqrt(n.excl / maxEx) : 6;
+      return { n: n, r: r, x: sc.X(Math.log10(Math.max(n.est, 1))), y: sc.Y(Math.log10(Math.max(n.rows, 1))) };
+    }).sort(function (p, q) { return q.r - p.r; });
+    items.forEach(function (it) {
+      var n = it.n;
+      var g = s("g", { tabindex: "0", role: "button", "aria-label": "#" + n.id + " " + nodeName(n) + " " + C.fmtFactor(n.lq) }, [
+        s("circle", { cx: it.x, cy: it.y, r: Math.max(it.r, 12), fill: "transparent" }),
+        s("circle", { class: "dot f-" + qBin(n.lq) + (n.id === state.sel ? " sel" : ""), cx: it.x, cy: it.y, r: it.r })
+      ]);
+      function tip() {
+        var rect = svg.getBoundingClientRect(), k = rect.width / W;
+        showTip(host, it.x * k + 12, it.y * k + 8, nodeTip(n, a));
+      }
+      g.addEventListener("pointerenter", tip);
+      g.addEventListener("focus", tip);
+      g.addEventListener("pointerleave", hideTip);
+      g.addEventListener("blur", hideTip);
+      g.addEventListener("click", function () { select(n.id, false); });
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter") select(n.id, false); });
+      svg.appendChild(g);
+    });
+    placeLabels(svg, sc, pts.filter(function (n) { return Math.abs(n.lq) >= 1; }).sort(function (p, q) { return Math.abs(q.lq) - Math.abs(p.lq); }).slice(0, 4).map(function (n) {
+      var it = items.filter(function (i) { return i.n === n; })[0];
+      return { x: it.x, y: it.y, r: it.r, text: "#" + n.id + " " + trunc(n.label + (n.object ? " " + n.object.split(" ")[0] : ""), 28) + " " + C.fmtFactor(n.lq) };
+    }));
+    host.appendChild(svg);
+    panel.appendChild(host);
+    var skipped = a.nodes.length - pts.length;
+    if (skipped) panel.appendChild(h("div", { class: "note", text: skipped + " node không có trên biểu đồ (node ghi dữ liệu như Update/Insert, node không chạy, hoặc thiếu số thực tế)." }));
+    box.appendChild(panel);
+  }
+
+  // ---- time icicle
+  function viewTime(box) {
+    var a = plan().a, R = runtime(a), nodes = a.nodes;
+    var sel = h("select", { "aria-label": "Tô màu ô theo", onchange: function (e) { state.icicleColor = e.target.value; renderView(); } },
+      [["time", "Thời gian riêng"], ["local", "Sai số tại chỗ"], ["lq", "Sai số ước lượng"]].map(function (m) {
+        var o = h("option", { value: m[0], text: m[1] }); if (m[0] === state.icicleColor) o.selected = true; return o; }));
+    var panel = h("div", { class: "panel" }, [
+      h("div", { class: "tools" }, [h("label", null, ["Tô màu theo", sel]), h("span", { class: "sp" }),
+        h("span", { class: "muted", style: { "font-size": "12px" }, text: "Bề rộng = thời gian gồm cả node con; phần trống bên phải mỗi ô là thời gian riêng. Plan của CTE nằm dưới CTE Scan đã kích hoạt nó." })]),
+      legendFor(state.icicleColor)
+    ]);
+    if (!a.summary.has_timing) {
+      panel.appendChild(h("div", { class: "empty", text: "Plan không có thời gian từng node (thiếu ANALYZE hoặc TIMING OFF)." }));
+      box.appendChild(panel);
+      return;
+    }
+    var host = h("div", { class: "chart icicle" });
+    panel.appendChild(host);
+    box.appendChild(panel);
+    var W = Math.max(320, host.clientWidth - 24), RH = 28;
+    var kids = {};
+    nodes.forEach(function (n) { kids[n.id] = []; });
+    nodes.forEach(function (n) { if (n.time_parent !== null && n.time_parent !== undefined) kids[n.time_parent].push(n.id); });
+    var cells = [], maxDepth = 0, total = R || nodes[0].incl || 1;
+    (function place(id, x, w, d) {
+      var n = nodes[id];
+      cells.push({ n: n, x: x, w: w, d: d });
+      maxDepth = Math.max(maxDepth, d);
+      var ks = kids[id].map(function (c) { return nodes[c]; }).filter(function (k) { return k.incl > 0; });
+      var sum = 0;
+      ks.forEach(function (k) { sum += k.incl; });
+      var scale = n.incl > 0 ? w / Math.max(sum, n.incl) : 0, cx = x;
+      ks.forEach(function (k) { var kw = k.incl * scale; place(k.id, cx, kw, d + 1); cx += kw; });
+    })(0, 0, W * Math.min(1, (nodes[0].incl || 0) / total), 0);
+    var H = (maxDepth + 1) * RH + 4;
+    var svg = s("svg", { viewBox: "0 0 " + W + " " + H, width: W, height: H, role: "img", "aria-label": "Biểu đồ thời gian dạng icicle" });
+    cells.forEach(function (c) {
+      if (c.w < 0.5) return;
+      var n = c.n, bin = state.icicleColor === "time" ? (R ? magBin((n.excl || 0) / R) : "na") : qBin(state.icicleColor === "local" ? n.local_lq : n.lq);
+      var g = s("g", { tabindex: "0", role: "button", "aria-label": "#" + n.id + " " + nodeName(n) + " " + C.fmtMs(n.incl) });
+      g.appendChild(s("rect", { class: "cellr f-" + bin + (n.id === state.sel ? " sel" : ""), x: c.x, y: c.d * RH, width: Math.max(c.w, 1), height: RH - 2, rx: 3 }));
+      if (c.w > 46) {
+        var txt = "#" + n.id + " " + n.label + (n.object ? " " + n.object.split(" ")[0] : "") + " · " + C.fmtMs(n.incl);
+        g.appendChild(s("text", { class: "o-" + bin, x: c.x + 6, y: c.d * RH + 18, text: trunc(txt, Math.floor((c.w - 10) / 6.6)) }));
+      }
+      function tip() {
+        var rect = svg.getBoundingClientRect(), k = rect.width / W;
+        showTip(host, (c.x + Math.min(c.w, 200) / 2) * k + 12, c.d * RH * k + 10, nodeTip(n, a).concat([h("div", null, [h("span", { class: "k", text: "gồm node con " }), C.fmtMs(n.incl)])]));
+      }
+      g.addEventListener("pointerenter", tip);
+      g.addEventListener("focus", tip);
+      g.addEventListener("pointerleave", hideTip);
+      g.addEventListener("blur", hideTip);
+      g.addEventListener("click", function () { select(n.id, false); });
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter") select(n.id, false); });
+      svg.appendChild(g);
+    });
+    host.appendChild(svg);
+    var S = a.summary, other = [];
+    if (S.trigger_ms) other.push("trigger " + C.fmtMs(S.trigger_ms));
+    if (S.jit_ms) other.push("JIT " + C.fmtMs(S.jit_ms));
+    if (R && nodes[0].incl !== null && R - nodes[0].incl > 1) other.push("ngoài cây plan " + C.fmtMs(R - nodes[0].incl));
+    if (other.length) panel.appendChild(h("div", { class: "note", text: "Không nằm trong các ô: " + other.join(", ") + "." }));
+  }
+
+  // ---- compare
+  function viewCompare(box) {
+    if (state.plans.length < 2) {
+      box.appendChild(h("div", { class: "panel" }, h("div", { class: "empty" }, ["Cần ít nhất hai plan của cùng một câu lệnh (ví dụ PG13 và PG17). ",
+        h("button", { class: "btn primary", text: "Mở thêm plan…", onclick: openDialog })])));
+      return;
+    }
+    if (state.cmpA >= state.plans.length) state.cmpA = 0;
+    if (state.cmpB >= state.plans.length || state.cmpB === state.cmpA) state.cmpB = state.cmpA === 0 ? 1 : 0;
+    var A = state.plans[state.cmpA], B = state.plans[state.cmpB];
+    function pick(id, val, cb) {
+      return h("select", { id: id, onchange: function (e) { cb(parseInt(e.target.value, 10)); renderView(); } }, state.plans.map(function (p, i) {
+        var o = h("option", { value: String(i), text: p.label }); if (i === val) o.selected = true; return o; }));
+    }
+    var panel = h("div", { class: "panel" });
+    panel.appendChild(h("div", { class: "cmp-head" }, [
+      h("label", null, ["A (gốc) ", pick("cmpA", state.cmpA, function (v) { state.cmpA = v; })]),
+      h("label", null, ["B ", pick("cmpB", state.cmpB, function (v) { state.cmpB = v; })]),
+      h("span", { class: "muted", style: { "font-size": "12.5px" }, text: "Node được ghép theo bảng/CTE mà nó đọc và loại node, không phụ thuộc số thứ tự SubPlan." })
+    ]));
+    var lo = Math.min(state.cmpA, state.cmpB), hi = Math.max(state.cmpA, state.cmpB);
+    var raw = getMatch(lo, hi), pairs = raw.map(function (p) { return state.cmpA === lo ? p : [p[1], p[0]]; });
+    var SA = A.a.summary, SB = B.a.summary;
+    function ratioCell(x, y) {
+      if (!x || !y) return h("td", { text: "–" });
+      var r = y / x;
+      if (Math.abs(Math.log10(r)) < 0.02) return h("td", { text: "≈" });
+      return h("td", { class: r > 1 ? "delta-up" : "delta-down", text: (r > 1 ? "▲ ×" + C.fmtNum(Math.round(r * 10) / 10) : "▼ ÷" + C.fmtNum(Math.round(10 / r) / 10)) });
+    }
+    var bA = (SA.shared_hit || 0) + (SA.shared_read || 0), bB = (SB.shared_hit || 0) + (SB.shared_read || 0);
+    var rows = [
+      ["Thời gian thực thi", C.fmtMs(SA.execution_ms), C.fmtMs(SB.execution_ms), SA.execution_ms, SB.execution_ms],
+      ["Lập kế hoạch", C.fmtMs(SA.planning_ms), C.fmtMs(SB.planning_ms), SA.planning_ms, SB.planning_ms],
+      ["Sai số lớn nhất", SA.max_abs_lq === null ? "–" : "×" + C.fmtNum(Math.round(Math.pow(10, SA.max_abs_lq))), SB.max_abs_lq === null ? "–" : "×" + C.fmtNum(Math.round(Math.pow(10, SB.max_abs_lq))),
+        SA.max_abs_lq === null ? null : Math.pow(10, SA.max_abs_lq), SB.max_abs_lq === null ? null : Math.pow(10, SB.max_abs_lq)],
+      ["Buffers shared", C.fmtBytes(bA * C.BLOCK), C.fmtBytes(bB * C.BLOCK), bA, bB],
+      ["File tạm", C.fmtBytes((SA.temp_blocks || 0) * C.BLOCK), C.fmtBytes((SB.temp_blocks || 0) * C.BLOCK), SA.temp_blocks, SB.temp_blocks],
+      ["Số node", String(SA.nodes), String(SB.nodes), SA.nodes, SB.nodes]
+    ];
+    panel.appendChild(h("div", { class: "tablewrap", style: { "max-height": "none" } }, h("table", { class: "grid" }, [
+      h("thead", null, h("tr", null, [h("th", { class: "l", text: "Chỉ số" }), h("th", { text: A.label }), h("th", { text: B.label }), h("th", { text: "B so với A" })])),
+      h("tbody", null, rows.map(function (r) { return h("tr", { style: { cursor: "default" } }, [h("td", { class: "l", text: r[0] }), h("td", { text: r[1] }), h("td", { text: r[2] }), ratioCell(r[3], r[4])]); }))
+    ])));
+    // matched nodes, biggest slowdown first
+    var mt = pairs.map(function (p) { return { a: A.a.nodes[p[0]], b: B.a.nodes[p[1]] }; });
+    mt.sort(function (x, y) { return ((y.b.excl || 0) - (y.a.excl || 0)) - ((x.b.excl || 0) - (x.a.excl || 0)) || x.b.id - y.b.id; });
+    var maxD = 0;
+    mt.forEach(function (m) { maxD = Math.max(maxD, Math.abs((m.b.excl || 0) - (m.a.excl || 0))); });
+    function side(n) {
+      return [h("td", { text: n.analyzed ? C.fmtNum(n.est) + " → " + (n.never ? "never" : C.fmtNum(n.rows)) : C.fmtNum(n.est) }),
+        h("td", null, h("span", { class: "cell f-" + qBin(n.lq), text: C.fmtFactor(n.lq) })),
+        h("td", { text: C.fmtMs(n.excl) + (n.analyzed && n.loops > 1 ? " ×" + C.fmtNum(n.loops) : "") })];
+    }
+    var tb = h("tbody");
+    mt.forEach(function (m) {
+      var d = (m.b.excl || 0) - (m.a.excl || 0);
+      tb.appendChild(h("tr", { onclick: function () { state.cur = state.cmpB; state.view = "graph"; state.sel = m.b.id; renderAll(); centerOn(m.b.id, false); } }, [
+        h("td", { class: "l nodecell", title: nodeName(m.b) }, [m.b.sub ? h("span", { class: "subn", text: "[" + m.b.sub + "] " }) : null, h("b", { text: m.b.label }), m.b.object ? " " + m.b.object : "",
+          m.a.label !== m.b.label ? h("span", { class: "muted", text: " (A: " + m.a.label + ")" }) : null]),
+      ].concat(side(m.a), side(m.b), [h("td", { class: d > 0 ? "delta-up" : d < 0 ? "delta-down" : "", text: (A.a.summary.has_timing && B.a.summary.has_timing) ? (d > 0 ? "+" : d < 0 ? "−" : "") + C.fmtMs(Math.abs(d)) : "–" })])));
+    });
+    var head2 = h("tr", null, [h("th", { class: "l", text: "Node (theo B)" }), h("th", { text: A.label + " dòng" }), h("th", { text: "sai số" }), h("th", { text: "riêng" }),
+      h("th", { text: B.label + " dòng" }), h("th", { text: "sai số" }), h("th", { text: "riêng" }), h("th", { text: "Δ riêng" })]);
+    panel.appendChild(h("div", { class: "note", text: "Node ghép được giữa hai plan, chênh lệch thời gian riêng lớn nhất trước. Số dòng: ước lượng → thực tế (mỗi loop). Bấm một dòng để mở node bên " + B.label + "." }));
+    panel.appendChild(h("div", { class: "tablewrap" }, h("table", { class: "grid" }, [h("thead", null, head2), tb])));
+    var usedA = {}, usedB = {};
+    pairs.forEach(function (p) { usedA[p[0]] = true; usedB[p[1]] = true; });
+    var onlyA = A.a.nodes.filter(function (n) { return !usedA[n.id]; }), onlyB = B.a.nodes.filter(function (n) { return !usedB[n.id]; });
+    if (onlyA.length || onlyB.length) {
+      panel.appendChild(h("div", { class: "only" }, [h("b", { text: "Khác biệt về hình dạng plan. " }),
+        onlyA.length ? h("div", null, ["Chỉ có ở " + A.label + ": ", h("code", { text: onlyA.map(function (n) { return "#" + n.id + " " + nodeName(n); }).join(" · ") })]) : null,
+        onlyB.length ? h("div", null, ["Chỉ có ở " + B.label + ": ", h("code", { text: onlyB.map(function (n) { return "#" + n.id + " " + nodeName(n); }).join(" · ") })]) : null]));
+    }
+    // dumbbell: how each matched node's estimate/actual moved from A to B
+    var pts = mt.filter(function (m) { return m.a.lq !== null && m.b.lq !== null; });
+    if (pts.length) {
+      var maxV = 1;
+      pts.forEach(function (m) { maxV = Math.max(maxV, m.a.est, m.a.rows, m.b.est, m.b.rows); });
+      var D = Math.max(2, Math.ceil(Math.log10(maxV) + 0.05)), W = 760, H = 600, M = { l: 70, r: 24, t: 18, b: 56 };
+      var svg = s("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Ước lượng và thực tế của các node ghép, A và B" });
+      var sc = scatterFrame(svg, D, W, H, M), host = h("div", { class: "chart" });
+      function P(n) { return [sc.X(Math.log10(Math.max(n.est, 1))), sc.Y(Math.log10(Math.max(n.rows, 1)))]; }
+      pts.forEach(function (m) { var pa = P(m.a), pb = P(m.b); svg.appendChild(s("line", { class: "link", x1: pa[0], y1: pa[1], x2: pb[0], y2: pb[1] })); });
+      pts.forEach(function (m) {
+        [["a", "sA", A, m.a], ["b", "sB", B, m.b]].forEach(function (z) {
+          var p = P(z[3]), g = s("g", { tabindex: "0", role: "button", "aria-label": z[2].label + " #" + z[3].id + " " + nodeName(z[3]) });
+          g.appendChild(s("circle", { cx: p[0], cy: p[1], r: 12, fill: "transparent" }));
+          g.appendChild(s("circle", { class: z[1], cx: p[0], cy: p[1], r: 6 }));
+          function tip() { var rect = svg.getBoundingClientRect(), k = rect.width / W; showTip(host, p[0] * k + 12, p[1] * k + 8, [h("div", { class: "k", text: z[2].label })].concat(nodeTip(z[3], z[2].a))); }
+          g.addEventListener("pointerenter", tip); g.addEventListener("focus", tip);
+          g.addEventListener("pointerleave", hideTip); g.addEventListener("blur", hideTip);
+          svg.appendChild(g);
+        });
+      });
+      var big = pts.slice().sort(function (x, y) { return Math.abs(y.b.lq - y.a.lq) - Math.abs(x.b.lq - x.a.lq); }).slice(0, 3);
+      placeLabels(svg, sc, big.filter(function (m) { return Math.abs(m.b.lq - m.a.lq) >= 0.5; }).map(function (m) {
+        var pb = P(m.b);
+        return { x: pb[0], y: pb[1], r: 7, text: "#" + m.b.id + " " + trunc(m.b.label + (m.b.object ? " " + m.b.object.split(" ")[0] : ""), 26) };
+      }));
+      host.appendChild(svg);
+      panel.appendChild(h("div", { class: "legend" }, [h("span", { text: "Mỗi đoạn nối cùng một node ở hai plan:" }),
+        h("span", null, [s("svg", { width: 14, height: 14, style: "vertical-align:-2px;margin-right:4px", "aria-hidden": "true" }, s("circle", { cx: 7, cy: 7, r: 5, fill: "none", stroke: "#2a78d6", "stroke-width": 2.5 })), A.label]),
+        h("span", null, [s("svg", { width: 14, height: 14, style: "vertical-align:-2px;margin-right:4px", "aria-hidden": "true" }, s("circle", { cx: 7, cy: 7, r: 6, fill: "#eb6834" })), B.label]),
+        h("span", { class: "muted", text: "Chấm nằm xa đường chéo = ước lượng sai; đoạn dài = ước lượng hoặc thực tế đổi giữa hai plan." })]));
+      panel.appendChild(host);
+    }
+    box.appendChild(panel);
+  }
+
+  // ------------------------------------------------------------------ inspector
+  function kv(pairs) {
+    var dl = h("dl", { class: "kv" });
+    pairs.forEach(function (p) { if (p) { dl.appendChild(h("dt", { text: p[0] })); dl.appendChild(h("dd", { text: p[1], title: p[2] || null })); } });
+    return dl;
+  }
+  function sect(title, kids) { return h("div", { class: "sect" }, [h("h3", { text: title })].concat(kids)); }
+  function renderInspector() {
+    var box = $("inspector");
+    clear(box);
+    var p = plan();
+    if (!p || state.sel === null || !p.a.nodes[state.sel]) {
+      box.appendChild(h("div", { class: "empty", text: "Chọn một node trên sơ đồ, bảng hoặc biểu đồ để xem chi tiết: thời gian, số dòng, sai số sinh ra ở đâu, bộ nhớ và điều kiện." }));
+      return;
+    }
+    var a = p.a, n = a.nodes[state.sel], R = runtime(a), r = n.raw;
+    var tags = [h("span", { class: "tag", text: "#" + n.id })];
+    if (n.sub) tags.push(h("span", { class: "tag", text: n.sub }));
+    else if (n.rel) tags.push(h("span", { class: "tag", text: n.rel }));
+    if (n.scope !== "main") tags.push(h("span", { class: "tag", text: n.scope.indexOf("cte:") === 0 ? "trong CTE " + n.scope.slice(4) : "trong sub-plan" }));
+    if (n.hot) tags.push(h("span", { class: "tag hot", text: "đường nóng" }));
+    if (n.never) tags.push(h("span", { class: "tag", text: "never executed" }));
+    if (r["Parallel Aware"]) tags.push(h("span", { class: "tag", text: "song song" }));
+    box.appendChild(h("div", { class: "insp-head" }, [h("div", { class: "ttl", text: n.label }), n.object || n.index ? h("div", { class: "obj", text: (n.object || "") + (n.index && n.object ? " · " : "") + (n.index ? "index " + n.index : "") }) : null,
+      h("div", { class: "tags" }, tags)]));
+    // findings on this node
+    if (n.insights.length) {
+      box.appendChild(sect("Phát hiện", n.insights.map(function (i) {
+        var ins = a.insights[i], rr = C.renderInsight(ins, RULES);
+        return h("details", { class: "find", open: true }, [h("summary", null, [sevChip(ins.sev), h("span", { text: rr.title }), h("span")]),
+          h("div", { class: "body" }, [h("div", { text: rr.detail }), rr.fix ? h("div", null, [h("b", { text: "Hướng xử lý" }), rr.fix]) : null])]);
+      })));
+    }
+    if (n.analyzed) {
+      box.appendChild(sect("Thời gian", [kv([
+        ["Riêng", n.excl === null ? "–" : C.fmtMs(n.excl) + (R ? " (" + (n.excl / R * 100).toFixed(1) + "%)" : "")],
+        ["Gồm node con", C.fmtMs(n.incl)],
+        r["Actual Total Time"] !== undefined ? ["Mỗi loop", C.fmtMs(r["Actual Total Time"]) + (r["Actual Startup Time"] !== undefined ? " (dòng đầu sau " + C.fmtMs(r["Actual Startup Time"]) + ")" : "")] : null
+      ])]));
+    }
+    // rows & estimation error
+    var rowKids = [kv([
+      ["Ước lượng mỗi loop", C.fmtNum(n.est), String(n.est)],
+      n.analyzed ? ["Thực tế mỗi loop", n.never ? "never executed" : C.fmtNum(n.rows), String(n.rows)] : null,
+      n.analyzed ? ["Loops", C.fmtNum(n.loops)] : null,
+      n.analyzed && n.loops > 1 ? ["Tổng: ước lượng → thực tế", C.fmtNum(n.est_total) + " → " + C.fmtNum(n.act_total)] : null,
+      n.removed ? ["Bị lọc bỏ (tổng)", C.fmtNum(n.removed)] : null,
+      ["Độ rộng dòng", n.width + " B"]
+    ])];
+    if (n.lq !== null) {
+      rowKids.push(h("div", { class: "decomp" }, ["Sai số tích luỹ ", h("span", { class: "cell f-" + qBin(n.lq), text: C.fmtFactor(n.lq) }),
+        " = đầu vào ", h("span", { class: "cell f-" + qBin(n.base_lq), text: C.fmtFactor(n.base_lq) }),
+        " × sinh ra tại node ", h("span", { class: "cell f-" + qBin(n.local_lq), text: C.fmtFactor(n.local_lq) })]));
+      rowKids.push(h("div", { class: "muted", style: { "font-size": "12px" }, text: explainBase(n, a) }));
+    }
+    box.appendChild(sect("Số dòng và sai số ước lượng", rowKids));
+    // propagation chain: this node and its ancestors
+    var chain = [], c = n;
+    while (c) { chain.push(c); c = c.parent !== null ? a.nodes[c.parent] : null; }
+    var withQ = chain.filter(function (x) { return x.lq !== null; });
+    if (withQ.length > 1) {
+      var mx = 3;
+      withQ.forEach(function (x) { mx = Math.max(mx, Math.abs(x.lq)); });
+      var grid = h("div", { class: "prop" });
+      withQ.forEach(function (x) {
+        var w = Math.abs(x.lq) / mx * 50, bar = h("i", { class: "f-" + qBin(x.lq), style: x.lq >= 0 ? { left: "50%", width: w + "%" } : { left: (50 - w) + "%", width: w + "%" } });
+        grid.appendChild(h("span", { class: "who" + (x.id === n.id ? " me" : ""), text: "#" + x.id + " " + x.label, title: nodeName(x) }));
+        grid.appendChild(h("span", { class: "pbar" }, bar));
+        grid.appendChild(h("span", { class: "num", style: { "text-align": "right" }, text: C.fmtFactor(x.lq) }));
+      });
+      box.appendChild(sect("Sai số lan lên các node cha", [h("div", { class: "muted", style: { "font-size": "12px", "margin-bottom": "6px" }, text: "Trái: ước lượng thừa · phải: ước lượng thiếu (thang log)." }), grid]));
+    }
+    // buffers / memory
+    var mem = [];
+    if (r["Sort Method"]) mem.push(["Sort", r["Sort Method"] + (r["Sort Space Used"] !== undefined ? " · " + (r["Sort Space Type"] || "") + " " + C.fmtBytes(r["Sort Space Used"] * 1024) : "")]);
+    if (r["Hash Batches"] !== undefined) mem.push(["Hash", "Buckets " + C.fmtNum(r["Hash Buckets"]) + " · Batches " + r["Hash Batches"] + (r["Original Hash Batches"] && r["Original Hash Batches"] !== r["Hash Batches"] ? " (dự kiến " + r["Original Hash Batches"] + ")" : "") + " · " + C.fmtBytes((r["Peak Memory Usage"] || 0) * 1024)]);
+    if (r["HashAgg Batches"] !== undefined) mem.push(["HashAgg", "Batches " + r["HashAgg Batches"] + (r["Peak Memory Usage"] ? " · " + C.fmtBytes(r["Peak Memory Usage"] * 1024) : "") + (r["Disk Usage"] ? " · đĩa " + C.fmtBytes(r["Disk Usage"] * 1024) : "")]);
+    if (r["Cache Hits"] !== undefined) mem.push(["Memoize", "trúng " + C.fmtNum(r["Cache Hits"]) + " · trượt " + C.fmtNum(r["Cache Misses"]) + " · đẩy ra " + C.fmtNum(r["Cache Evictions"] || 0)]);
+    if (r["Heap Fetches"] !== undefined) mem.push(["Heap Fetches", C.fmtNum(r["Heap Fetches"])]);
+    if (r["Workers Planned"] !== undefined) mem.push(["Worker", (r["Workers Launched"] !== undefined ? r["Workers Launched"] : "?") + " / " + r["Workers Planned"] + " dự kiến"]);
+    var bufRows = C.BUF_KEYS.filter(function (k) { return n.buf[k]; });
+    var memKids = [];
+    if (mem.length) memKids.push(kv(mem));
+    if (bufRows.length) {
+      memKids.push(h("table", { class: "grid", style: { "margin-top": "6px" } }, [h("thead", null, h("tr", null, [h("th", { class: "l", text: "Buffers" }), h("th", { text: "Gồm con" }), h("th", { text: "Riêng" })])),
+        h("tbody", null, bufRows.map(function (k) {
+          return h("tr", { style: { cursor: "default" } }, [h("td", { class: "l", text: k.replace(" Blocks", "").toLowerCase() }), h("td", { text: C.fmtBytes(n.buf[k] * C.BLOCK), title: n.buf[k] + " block" }),
+            h("td", { text: C.fmtBytes((n.buf_excl[k] || 0) * C.BLOCK), title: (n.buf_excl[k] || 0) + " block" })]);
+        }))]));
+    }
+    if (memKids.length) box.appendChild(sect("Bộ nhớ và I/O", memKids));
+    // counterparts in other plans
+    if (state.plans.length > 1) {
+      var mk = [];
+      state.plans.forEach(function (o, j) {
+        if (j === state.cur) return;
+        var cid = counterpart(state.cur, n.id, j);
+        if (cid === null) { mk.push(h("div", { class: "muted", text: o.label + ": không có node tương ứng (plan khác hình dạng)." })); return; }
+        var m = o.a.nodes[cid];
+        mk.push(h("div", { style: { display: "flex", "justify-content": "space-between", gap: "8px", "align-items": "baseline", "flex-wrap": "wrap" } }, [
+          h("span", null, [h("b", { text: o.label }), " #" + m.id + " " + m.label + " · ", C.fmtNum(m.est) + " → " + (m.analyzed ? C.fmtNum(m.rows) : "?") + " ",
+            h("span", { class: "cell f-" + qBin(m.lq), text: C.fmtFactor(m.lq) }), " · riêng " + C.fmtMs(m.excl) + (m.analyzed && m.loops > 1 ? " ×" + C.fmtNum(m.loops) + " loop" : "")]),
+          h("button", { class: "btn small", text: "Mở", onclick: function () { switchPlan(j, m.id); } })]));
+      });
+      box.appendChild(sect("Cùng node ở plan khác", mk));
+    }
+    // planner details
+    var det = [kv([["Cost", r["Startup Cost"] + " .. " + r["Total Cost"]], r["Join Type"] ? ["Join", r["Join Type"]] : null, r["Strategy"] ? ["Strategy", r["Strategy"]] : null])];
+    var shown = { "Node Type": 1, "Parent Relationship": 1, "Subplan Name": 1, "Plans": 1, "Startup Cost": 1, "Total Cost": 1, "Plan Rows": 1, "Plan Width": 1, "Actual Startup Time": 1,
+      "Actual Total Time": 1, "Actual Rows": 1, "Actual Loops": 1, "Relation Name": 1, "Alias": 1, "Schema": 1, "Index Name": 1, "CTE Name": 1, "Join Type": 1, "Strategy": 1,
+      "Sort Method": 1, "Sort Space Used": 1, "Sort Space Type": 1, "Hash Buckets": 1, "Original Hash Buckets": 1, "Hash Batches": 1, "Original Hash Batches": 1, "Peak Memory Usage": 1,
+      "Parallel Aware": 1, "Async Capable": 1, "Partial Mode": 1, "Operation": 1 };
+    C.BUF_KEYS.forEach(function (k) { shown[k] = 1; });
+    var raw = h("div", { class: "raw" });
+    Object.keys(r).forEach(function (k) {
+      if (shown[k]) return;
+      var v = r[k];
+      if (v === null || v === undefined || v === "" || (Array.isArray(v) && !v.length)) return;
+      raw.appendChild(h("div", null, [h("b", { text: k }), h("code", { text: Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v) })]));
+    });
+    det.push(raw);
+    box.appendChild(sect("Chi tiết planner", det));
+  }
+  function explainBase(n, a) {
+    if (n.type === "CTE Scan") return "Đầu vào của CTE Scan là ước lượng của chính CTE; phần tại chỗ đến từ điều kiện lọc trên CTE (hoặc việc dừng sớm).";
+    var data = n.children.map(function (c) { return a.nodes[c]; }).filter(function (c) { return c.rel !== "InitPlan" && c.rel !== "SubPlan"; });
+    if (!data.length) return "Node lá: toàn bộ sai số đến từ điều kiện lọc / thống kê của bảng.";
+    if (["Nested Loop", "Hash Join", "Merge Join"].indexOf(n.type) >= 0) {
+      var jt = n.raw["Join Type"] || "Inner";
+      if (jt === "Semi" || jt === "Anti") return "Semi/Anti join: đầu vào là phía ngoài; phần tại chỗ là sai số độ chọn lọc của điều kiện join.";
+      return "Join: đầu vào = sai số phía ngoài × sai số phía trong (mỗi loop); phần tại chỗ là sai số độ chọn lọc của điều kiện join.";
+    }
+    return "Đầu vào là sai số của node con; phần tại chỗ do chính node này (lọc, gom nhóm, giới hạn…).";
+  }
+
+  // ------------------------------------------------------------------ selection & plan switching
+  function select(id, fromFinding) {
+    state.sel = id;
+    renderInspector();
+    if (state.view === "graph") { applyGraphClasses(); centerOn(id, !fromFinding); }
+    else if (fromFinding && state.view !== "table") { state.view = "graph"; renderTabs(); renderView(); centerOn(id, false); }
+    else renderView();
+    if (fromFinding) { var w = $("view"); if (w && w.scrollIntoView) w.scrollIntoView({ block: "start", behavior: "smooth" }); }
+  }
+  function defaultSel(a) {
+    var withNode = a.insights.filter(function (i) { return i.node !== null; });
+    if (withNode.length) return withNode[0].node;
+    return a.summary.worst_node !== null ? a.summary.worst_node : 0;
+  }
+  function switchPlan(i, nodeId) {
+    state.cur = i;
+    state.sel = nodeId !== undefined ? nodeId : defaultSel(state.plans[i].a);
+    state.search = "";
+    renderAll();
+    if (state.view === "graph" && nodeId !== undefined) requestAnimationFrame(function () { centerOn(nodeId, false); });
+  }
+  function removePlan(i) {
+    state.plans.splice(i, 1);
+    state.matchCache = {};
+    state.tf = {};
+    if (state.cur >= state.plans.length) state.cur = Math.max(0, state.plans.length - 1);
+    state.sel = plan() ? defaultSel(plan().a) : null;
+    renderAll();
+  }
+  function renderAll() {
+    renderHeader(); renderKpis(); renderFindings(); renderTabs(); renderView(); renderInspector();
+    var ex = $("example");
+    if (ex) ex.hidden = !(DATA.example && state.plans.some(function (p) { return p.example; }));
+  }
+
+  // ------------------------------------------------------------------ open / paste / drop
+  function openDialog() { $("dlg-err").textContent = ""; var d = $("dlg"); if (d.showModal) d.showModal(); else d.setAttribute("open", ""); $("dlg-text").focus(); }
+  function closeDialog() { var d = $("dlg"); if (d.close) d.close(); else d.removeAttribute("open"); }
+  function ingest(text, label, source) {
+    var res = C.parseAny(text);
+    var i = addPlan({ label: label || ("Plan " + (state.plans.length + 1)), source: source || "dán vào", format: res.fmt, meta: {}, plan: res.obj });
+    state.matchCache = {};
+    return i;
+  }
+  function readFiles(files, replace) {
+    var list = Array.prototype.slice.call(files), done = 0, errs = [], last = null;
+    if (replace && list.length) { state.plans = []; state.matchCache = {}; state.tf = {}; }
+    list.forEach(function (f) {
+      var rd = new FileReader();
+      rd.onload = function () {
+        try {
+          var m = /(?:^|[._-])pg(\d{1,2})(?=[._-]|$)/i.exec(f.name);
+          last = ingest(String(rd.result), m ? "PG" + m[1] : f.name.replace(/\.(json|txt|log|sql|explain)$/i, ""), f.name);
+        } catch (e) { errs.push(f.name + ": " + e.message); }
+        if (++done === list.length) finishLoad(last, errs);
+      };
+      rd.onerror = function () { errs.push(f.name + ": không đọc được file"); if (++done === list.length) finishLoad(last, errs); };
+      rd.readAsText(f);
+    });
+  }
+  function finishLoad(idx, errs) {
+    if (errs.length) { $("dlg-err").textContent = errs.join(" · "); if (!$("dlg").open) openDialog(); }
+    else closeDialog();
+    if (idx !== null) { state.plans.forEach(function (p) { p.example = false; }); switchPlan(idx); }
+  }
+  function setupDialog() {
+    $("open").addEventListener("click", openDialog);
+    $("dlg-cancel").addEventListener("click", closeDialog);
+    function go(replace) {
+      var text = $("dlg-text").value;
+      if (!text.trim()) { $("dlg-err").textContent = "Dán output của EXPLAIN vào ô trên, hoặc chọn file."; return; }
+      try {
+        if (replace) { state.plans = []; state.matchCache = {}; state.tf = {}; }
+        var i = ingest(text, $("dlg-label").value.trim());
+        state.plans.forEach(function (p) { p.example = false; });
+        $("dlg-text").value = ""; $("dlg-label").value = "";
+        closeDialog();
+        switchPlan(i);
+      } catch (e) { $("dlg-err").textContent = "Không đọc được plan: " + e.message; }
+    }
+    $("dlg-add").addEventListener("click", function () { go(false); });
+    $("dlg-replace").addEventListener("click", function () { go(true); });
+    $("dlg-file").addEventListener("change", function (e) { if (e.target.files.length) readFiles(e.target.files, false); e.target.value = ""; });
+    var depth = 0, overlay = $("drop");
+    window.addEventListener("dragenter", function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], "Files") >= 0) { depth++; overlay.hidden = false; } });
+    window.addEventListener("dragleave", function () { depth = Math.max(0, depth - 1); if (!depth) overlay.hidden = true; });
+    window.addEventListener("dragover", function (e) { e.preventDefault(); });
+    window.addEventListener("drop", function (e) { e.preventDefault(); depth = 0; overlay.hidden = true; if (e.dataTransfer && e.dataTransfer.files.length) readFiles(e.dataTransfer.files, false); });
+  }
+  function setupTheme() {
+    $("theme").addEventListener("click", function () {
+      var r = document.documentElement, dark = r.dataset.theme === "dark" || (!r.dataset.theme && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches);
+      r.dataset.theme = dark ? "light" : "dark";
+      if (state.view === "time") renderView();
+    });
+  }
+
+  // ------------------------------------------------------------------ boot
+  (DATA.plans || []).forEach(function (p) {
+    try { addPlan(p); } catch (e) { console.error("planviz: cannot analyse " + p.label, e); }
+  });
+  if (state.plans.length) state.sel = defaultSel(state.plans[0].a);
+  setupDialog();
+  setupTheme();
+  renderAll();
+  var rz = null;
+  window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(function () { if (state.view === "time") renderView(); }, 150); });
+})();
+
+</script>
+</body>
+</html>

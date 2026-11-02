@@ -1,0 +1,95 @@
+
+== PG13  (.claude/skills/planviz/planviz/assets/demo/pg13_baseline.json) – EXPLAIN ANALYZE, 10 node
+   thực thi 4.0 s · lập kế hoạch 1.97 ms · buffers 309 MB (100% cache) · file tạm 19.8 MB
+   Thời gian riêng lớn nhất:
+      27.4%      1.1 s  #9 CTE Scan current_brand_code cbc [SubPlan 2]
+      23.5%     947 ms  #2 Hash Join
+      20.6%     829 ms  #1 Hash Join [CTE current_brand_code]
+      17.9%     721 ms  #3 Seq Scan brand_assignments ba
+       8.2%     329 ms  #8 Index Scan products p
+   Sai số ước lượng sinh ra tại node (ước lượng → thực tế mỗi loop):
+         ↑80× tại chỗ (tích luỹ ↑85×)  #9 CTE Scan current_brand_code cbc [SubPlan 2]  4.7K → 400K
+              Filter: (cbc.region = 'VN'::text)
+   Phát hiện:
+     [Trung bình] HOTSPOT #9 27% thời gian nằm ở CTE Scan current_brand_code cbc
+         Vì sao: Thời gian riêng 1.1 s trên tổng 4.0 s (đã trừ thời gian các node con).
+         Xử lý: Xem các phát hiện khác gắn với node này và với node con của nó để biết vì sao chậm.
+     [Trung bình] MISEST #9 Ước lượng thiếu ↑80× phát sinh tại CTE Scan current_brand_code cbc
+         Vì sao: Planner đoán 4.7K dòng mỗi loop, thực tế 400K: sai số tích luỹ ↑85×. Đầu vào của node chỉ mang theo ≈1×, phần còn lại sinh ra ở chính node này (so với ước lượng của CTE mà nó đọc). Điều kiện: Filter: (cbc.region = 'VN'::text)
+         Xử lý: Ước lượng của CTE Scan dựa trên thống kê cột mà planner gán cho CTE (từ PG17 mượn thống kê bảng gốc). ANALYZE các bảng liên quan; điều kiện trên nhiều cột tương quan thì CREATE STATISTICS (dependencies, mcv); biểu thức/hàm thì thống kê biểu thức (PG14+) hoặc index biểu thức; cột phân bố lệch thì ALTER TABLE … ALTER COLUMN … SET STATISTICS.
+
+== PG17  (.claude/skills/planviz/planviz/assets/demo/pg17_baseline.json) – EXPLAIN ANALYZE, 10 node
+   thực thi 20m 28s · lập kế hoạch 1.87 ms · buffers 320 MB (98% cache) · file tạm 48.5 GB · query_id 8512646466599369567
+   Thời gian riêng lớn nhất:
+      83.3%    17m 03s  #9 CTE Scan current_brand_code cbc [SubPlan 2]  ×5.0K loop
+      16.3%     3m 20s  #8 Index Scan products p
+   Không node nào tự sinh sai số ước lượng ≥10×.
+   Phát hiện:
+     [Nghiêm trọng] SUBPLAN_RESCAN #9 SubPlan 2 chạy lại 5.0K lần vì không được hash
+         Vì sao: SubPlan 2 được thực thi lại cho mỗi dòng của node cha, mỗi lần trả về trung bình 200K dòng (1.0B dòng qua tất cả các lần); cả nhánh chiếm 83% thời gian. Đây là mẫu NOT IN / = ANY (subquery): PostgreSQL chỉ dùng hashed SubPlan khi bảng băm ước lượng (380K dòng × (32 B căn lề 8 + 24 B) ≈ 20.3 MB) vừa work_mem × hash_mem_multiplier = 4.0 MB × 2 (mặc định PG15+) = 8.0 MB. Bảng băm của SubPlan không tràn đĩa được, nên vượt ngưỡng là rơi xuống quét lại.
+         Xử lý: Viết lại thành NOT EXISTS (Hash Anti Join, tràn đĩa theo batch thay vì quét lại), hoặc nâng ngân sách cho riêng câu này: work_mem ≥ 10.1 MB với hash_mem_multiplier 2 (pg_hint_plan Set(work_mem …), ALTER ROLE … IN DATABASE … SET).
+     [Cao] HOTSPOT #9 83% thời gian nằm ở CTE Scan current_brand_code cbc
+         Vì sao: Thời gian riêng 17m 03s trên tổng 20m 28s (đã trừ thời gian các node con).
+         Xử lý: Xem các phát hiện khác gắn với node này và với node con của nó để biết vì sao chậm.
+
+== PG17 + hint work_mem  (.claude/skills/planviz/planviz/assets/demo/pg17_hint_work_mem.json) – EXPLAIN ANALYZE, 10 node
+   thực thi 4.2 s · lập kế hoạch 2.17 ms · buffers 320 MB (100% cache) · file tạm 19.8 MB · query_id 8512646466599369567
+   Thời gian riêng lớn nhất:
+      26.5%      1.1 s  #9 CTE Scan current_brand_code cbc [SubPlan 2]
+      22.4%     936 ms  #2 Hash Join
+      19.5%     814 ms  #1 Hash Join [CTE current_brand_code]
+      18.4%     770 ms  #3 Seq Scan brand_assignments ba
+      10.8%     451 ms  #8 Index Scan products p
+   Không node nào tự sinh sai số ước lượng ≥10×.
+   Phát hiện:
+     [Trung bình] HOTSPOT #9 26% thời gian nằm ở CTE Scan current_brand_code cbc
+         Vì sao: Thời gian riêng 1.1 s trên tổng 4.2 s (đã trừ thời gian các node con).
+         Xử lý: Xem các phát hiện khác gắn với node này và với node con của nó để biết vì sao chậm.
+
+== PG17 NOT EXISTS  (.claude/skills/planviz/planviz/assets/demo/pg17_not_exists.txt) – EXPLAIN ANALYZE, 15 node
+   thực thi 4.2 s · lập kế hoạch 2.56 ms · buffers 308 MB (100% cache) · file tạm 80.3 MB · query_id -161997702680696319
+   Thời gian riêng lớn nhất:
+      21.1%     890 ms  #2 Hash Join
+      19.4%     818 ms  #9 CTE Scan current_brand_code cbc_2 [InitPlan 3]
+      17.8%     751 ms  #1 Hash Join [CTE current_brand_code]
+      14.8%     625 ms  #3 Seq Scan brand_assignments ba
+      13.8%     580 ms  #14 CTE Scan current_brand_code cbc
+   Không node nào tự sinh sai số ước lượng ≥10×.
+   Phát hiện:
+     [Trung bình] FILTER_WASTE #9 CTE Scan current_brand_code cbc_2 đọc rồi bỏ 100% số dòng
+         Vì sao: Bỏ 1.0M dòng, giữ 0. Điều kiện: Filter: ((cbc_2.brand_code IS NULL) AND (cbc_2.region = 'VN'::text))
+         Xử lý: CTE không có index: đưa điều kiện lọc vào trong CTE, hoặc dùng NOT MATERIALIZED để planner đẩy điều kiện xuống bảng gốc. Nếu đây là bước kiểm tra cố ý (vd. tìm NULL) thì có thể bỏ qua.
+     [Trung bình] HASH_SPILL #13 Hash chia 8 batch (tràn đĩa)
+         Vì sao: Bảng băm dùng tối đa 3.9 MB mỗi batch.
+         Xử lý: work_mem × hash_mem_multiplier khoảng ≥ 31.0 MB để chạy một batch.
+     [Thông tin] NEVER_EXECUTED 1 node không bao giờ chạy
+
+== So sánh PG13 → PG17
+   Thời gian thực thi 4.0 s → 20m 28s (×305 chậm hơn)
+   Node đổi nhiều nhất (thời gian riêng, ước lượng → thực tế, loops):
+     +  17m 02s  #9 CTE Scan current_brand_code cbc [SubPlan 2]: 1.1 s → 17m 03s; 4.7K→400K → 380K→200K; loops 1 → 5.0K
+     +   3m 20s  #8 Index Scan products p: 329 ms → 3m 20s; 2.7K→2.5K → 2.7K→2.5K; loops 1 → 1
+     +    2.7 s  #0 Update products p: 68 ms → 2.7 s; 2.7K→0 → 0→0; loops 1 → 1
+     −   230 ms  #2 Hash Join: 947 ms → 717 ms; 945K→1.0M → 949K→1.0M; loops 1 → 1
+     −   197 ms  #1 Hash Join [CTE current_brand_code]: 829 ms → 632 ms; 943K→1.0M → 949K→1.0M; loops 1 → 1
+
+== So sánh PG13 → PG17 + hint work_mem
+   Thời gian thực thi 4.0 s → 4.2 s (×1 chậm hơn)
+   Node đổi nhiều nhất (thời gian riêng, ước lượng → thực tế, loops):
+     +   122 ms  #8 Index Scan products p: 329 ms → 451 ms; 2.7K→2.5K → 2.7K→2.5K; loops 1 → 1
+     +    50 ms  #3 Seq Scan brand_assignments ba: 721 ms → 770 ms; 994K→1.0M → 999K→1.0M; loops 1 → 1
+     −    14 ms  #1 Hash Join [CTE current_brand_code]: 829 ms → 814 ms; 943K→1.0M → 949K→1.0M; loops 1 → 1
+     −    11 ms  #2 Hash Join: 947 ms → 936 ms; 945K→1.0M → 949K→1.0M; loops 1 → 1
+     −  4.77 ms  #0 Update products p: 68 ms → 63 ms; 2.7K→0 → 0→0; loops 1 → 1
+
+== So sánh PG13 → PG17 NOT EXISTS
+   Thời gian thực thi 4.0 s → 4.2 s (×1 chậm hơn)
+   Node đổi nhiều nhất (thời gian riêng, ước lượng → thực tế, loops):
+     −   309 ms  #12 Index Scan products p: 329 ms → 20 ms; 2.7K→2.5K → 5.1K→5.0K; loops 1 → 1
+     −    96 ms  #3 Seq Scan brand_assignments ba: 721 ms → 625 ms; 994K→1.0M → 999K→1.0M; loops 1 → 1
+     −    78 ms  #1 Hash Join [CTE current_brand_code]: 829 ms → 751 ms; 943K→1.0M → 949K→1.0M; loops 1 → 1
+     −    57 ms  #2 Hash Join: 947 ms → 890 ms; 945K→1.0M → 949K→1.0M; loops 1 → 1
+     +    32 ms  #0 Update products p: 68 ms → 100 ms; 2.7K→0 → 0→0; loops 1 → 1
+   Plan khác hình dạng:
+     chỉ có ở PG13: #9 CTE Scan current_brand_code cbc [SubPlan 2]
+     chỉ có ở PG17 NOT EXISTS: #8 CTE Scan current_brand_code cbc_1 [InitPlan 2]; #9 CTE Scan current_brand_code cbc_2 [InitPlan 3]; #10 Result; #11 Hash Anti Join; #13 Hash; #14 CTE Scan current_brand_code cbc
