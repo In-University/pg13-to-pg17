@@ -66,7 +66,14 @@ Cây plan vẽ từ trên xuống. Node gốc (Update/Select) ở trên cùng, d
   - *Sai số ước lượng*: thang phân kỳ. Xanh dương là planner ước lượng **thừa**, cam là ước lượng **thiếu**, xám là lệch trong vòng 10×.
   - *Sai số tại chỗ*: như trên, nhưng chỉ tính phần sai số sinh ra ở chính node (Mục 3.3).
   - *Buffers đọc*, *Ghi/đọc file tạm*: phần riêng của node so với tổng của cả plan.
-- **Độ dày cạnh** là số dòng node con trả lên node cha, thang log: 1 dòng thì mảnh, 1 triệu dòng thì dày. Nhãn trên cạnh ghi số dòng thực tế và số loop.
+- **Độ dày cạnh** (ô "Độ dày cạnh"):
+  - *Thời gian của nhánh* (mặc định khi plan có ANALYZE): tỉ lệ thuận với % thời gian chạy nằm trong cả nhánh con (thời gian gồm node con). Cạnh dày gấp đôi là gấp đôi thời gian, nên lần theo cạnh dày từ gốc xuống là tới chỗ nghẽn. Nhãn trên cạnh ghi `% · số dòng (số loop)`.
+  - *Số dòng*: số dòng node con trả lên node cha, thang log (1 dòng thì mảnh, 1 triệu dòng thì dày).
+- **Thanh dưới mỗi node**: phần mờ là % thời gian gồm cả node con, phần nổi là % thời gian riêng của node. Thanh dài mà phần nổi ngắn nghĩa là thời gian nằm ở dưới; phần nổi dài nghĩa là chính node này tốn thời gian.
+- **Số ①②③** ở góc node: 3 node có thời gian riêng lớn nhất (mỗi node ≥ 5% thời gian chạy). Khung chi tiết node ghi `điểm nóng 1 · 83%`. Nút **Đến điểm nóng** chọn node số 1 và đưa nó vào giữa khung.
+- Khi tô màu theo *Thời gian riêng*, node mà cả nhánh chiếm dưới 1% thời gian được **làm mờ**, trừ node trên đường nóng.
+- **Gộp nhánh < 1% thời gian**: tự bật với plan trên 30 node (bảng partition, UNION dài), tắt/bật bằng ô đánh dấu. Một nhánh con chiếm dưới 1% thời gian thu lại thành nút `+N node · x%`. Node có từ 5 con trở lên (Append qua nhiều partition, BitmapOr…) thì các con nhỏ gom chung một nút. Bấm nút để mở; chọn một node đang bị gộp (từ bảng hay phát hiện) thì nhánh tự mở.
+- Khi mở trang, nếu cả cây thu vừa khung thì quá nhỏ để đọc (plan lớn), sơ đồ phóng vào node đang chọn (hoặc điểm nóng số 1) thay vì thu nhỏ cả cây; nút ⤢ vẫn đưa cả cây về vừa khung.
 - Cạnh nét đứt nối **SubPlan / InitPlan / CTE**; tên của chúng ghi phía trên node con.
 - Viền đậm đánh dấu **đường nóng**: đi từ gốc xuống, mỗi bước chọn node con tốn thời gian nhất.
 - Dòng cuối trong mỗi node là `ước lượng → thực tế` (mỗi loop) kèm chip `↑85×` / `↓12×`. `×5.0K` ở góc phải là số loop.
@@ -169,9 +176,10 @@ với `lq(đầu vào)` tính theo loại node:
 | Semi / Anti join | lq(phía ngoài); Right Semi/Anti: phía trong | Số dòng ra chỉ phụ thuộc phía được giữ lại. |
 | CTE Scan | lq(node gốc của CTE) | CTE Scan nhận ước lượng của CTE; phần dư là sai số của điều kiện lọc trên CTE. |
 | Append / Merge Append | log(Σ thực tế / Σ ước lượng của các nhánh) | Đầu ra là tổng, không phải tích. |
-| Node khác (Sort, Hash, Aggregate, Limit, Gather…) | lq(node con dữ liệu) | Phần dư là của gom nhóm, giới hạn… |
+| Aggregate không GROUP BY (`Strategy: Plain`) | 0 | Luôn ra 1 dòng mỗi loop, bất kể đầu vào. |
+| Node khác (Sort, Hash, GroupAggregate/HashAggregate, Limit, Gather…) | lq(node con dữ liệu) | Phần dư là của gom nhóm, giới hạn… |
 
-Node có `|sai số tại chỗ| ≥ 10×` là **nơi sinh ra sai số** (phát hiện `MISEST`). Đó là điều kiện hoặc join cần sửa thống kê.
+Node có `|sai số tại chỗ| ≥ 10×` **và** ước lượng của chính nó lệch ≥ 10× (`|sai số tích luỹ| ≥ 10×`) là **nơi sinh ra sai số** (phát hiện `MISEST`). Đó là điều kiện hoặc join cần sửa thống kê. Điều kiện thứ hai loại trường hợp node *bù trừ* sai số của đầu vào: ví dụ đầu vào ↑68× nhưng join ↓162× nên ước lượng của join chỉ lệch ↓2.4×. Ước lượng tại join gần đúng nên không có gì cần sửa ở đó; sai số ↑68× đã được báo tại node sinh ra nó.
 
 Ví dụ trong lab, PG13: `CTE Scan current_brand_code` lệch ↑85×, trong đó đầu vào (chính CTE) đúng ≈1×, nên toàn bộ ↑80× sinh ra ở `Filter: (cbc.region = 'VN')`. Trên PG13 thì CTE không có thống kê cột, planner đoán 0.5% cho mọi điều kiện `=`. Xem `docs/explain-walkthrough.md`.
 
@@ -196,7 +204,7 @@ Phát hiện ghi rõ cần bao nhiêu bộ nhớ, và `work_mem` tối thiểu �
 |---|---|
 | `SUBPLAN_RESCAN` | SubPlan không hash chạy ≥ 10 lần. Mức độ theo % thời gian của cả nhánh (≥ 50% là nghiêm trọng). Có kèm ngưỡng hash nếu là mẫu NOT IN / `= ANY`. |
 | `RESCAN` | Seq/CTE Scan, Materialize, Sort, Aggregate, Hash Join… chạy ≥ 1 000 loop (thường là phía trong Nested Loop) và chiếm ≥ 10% thời gian hoặc trả ≥ 1 triệu dòng. |
-| `MISEST` | Sai số **tại chỗ** ≥ 10×; tối đa 6 node nặng nhất. Mức cao nếu ≥ 1000×, hoặc ≥ 100× ở nhánh chiếm ≥ 20% thời gian. |
+| `MISEST` | Sai số **tại chỗ** ≥ 10× và ước lượng của node lệch ≥ 10×; tối đa 6 node nặng nhất. Mức cao nếu ≥ 1000×, hoặc ≥ 100× ở nhánh chiếm ≥ 20% thời gian. |
 | `HOTSPOT` | Một node chiếm ≥ 25% thời gian riêng. |
 | `SORT_SPILL`, `HASH_SPILL`, `HASHAGG_SPILL` | Sort trên đĩa; Hash nhiều batch (ghi rõ nếu planner tưởng ít batch hơn, tức phía build bị ước lượng thiếu); HashAggregate tràn đĩa. Có gợi ý mức bộ nhớ cần. |
 | `TEMP_IO` | Node tự ghi ≥ 100 MB file tạm mà không thuộc các trường hợp trên (ví dụ tuplestore của CTE). |

@@ -6,8 +6,10 @@
   var RULES = DATA.rules || {};
   var SEVL = RULES._severity || {};
   var SVGNS = "http://www.w3.org/2000/svg";
+  // edgeBy: "time" (share of runtime spent in the child's subtree) or "rows"; fold: null = automatic (plans > FOLD_AUTO
+  // nodes), true / false = the user's choice. Unfolded subtrees are remembered per plan in plan.open.
   var state = { plans: [], cur: 0, sel: null, view: "graph", color: "time", sort: null, cmpA: 0, cmpB: 1, search: "",
-    tf: {}, icicleColor: "time", showAllFindings: false, matchCache: {} };
+    tf: {}, icicleColor: "time", showAllFindings: false, matchCache: {}, edgeBy: "time", fold: null };
 
   // ------------------------------------------------------------------ DOM helpers
   function h(tag, attrs, kids) {
@@ -67,6 +69,71 @@
     return (lq > 0 ? "u" : "o") + (a < 2 ? 1 : a < 3 ? 2 : 3);
   }
   function runtime(a) { return a.summary.runtime_ms; }
+  function timed(a) {
+    return !!runtime(a) && a.nodes.some(function (n) { return n.incl !== null && n.incl !== undefined; });
+  }
+  function inclOf(n) { return n.never ? 0 : (n.incl === null || n.incl === undefined ? null : n.incl); }
+  function pctText(f) { return f < 0.01 ? "<1%" : Math.round(f * 100) + "%"; }
+  // The three largest exclusive-time nodes that hold at least 5% of the runtime: {node id: rank 1..3}.
+  var HOT_MIN = 0.05;
+  function hotRanks(a) {
+    if (a._ranks) return a._ranks;
+    var R = runtime(a), r = {};
+    if (timed(a)) {
+      a.nodes.filter(function (n) { return n.excl !== null && n.excl !== undefined && n.excl >= R * HOT_MIN; })
+        .sort(function (x, y) { return y.excl - x.excl || x.id - y.id; })
+        .slice(0, 3).forEach(function (n, i) { r[n.id] = i + 1; });
+    }
+    a._ranks = r;
+    return r;
+  }
+  function topHot(a) {
+    var r = hotRanks(a);
+    for (var id in r) if (r[id] === 1) return +id;
+    return null;
+  }
+  // Folding (diagram only): what costs under FOLD_PCT of the runtime is drawn as one "+N node" stub –
+  //  - a whole subtree below the threshold (its root stays visible, its children go into the stub);
+  //  - small children of a node with FOLD_SIBLINGS or more children (Append over partitions, BitmapOr…).
+  var FOLD_PCT = 0.01, FOLD_AUTO = 30, FOLD_SIBLINGS = 5;
+  function foldOn(a) { return timed(a) && (state.fold === null ? a.nodes.length > FOLD_AUTO : state.fold); }
+  function smallNode(a, n) { var v = inclOf(n); return v !== null && v < runtime(a) * FOLD_PCT; }
+  function subtreeSize(a, n) {
+    if (!a._size) {
+      a._size = {};
+      for (var i = a.nodes.length - 1; i >= 0; i--) {
+        var m = a.nodes[i], c = 1;
+        m.children.forEach(function (k) { c += a._size[k] || 1; });
+        a._size[m.id] = c;
+      }
+    }
+    return a._size[n.id];
+  }
+  function kidsFn(p) {
+    var a = p.a, on = foldOn(a);
+    return function (n) {
+      if (!on || !n.children.length || (p.open && p.open[n.id])) return n.children;
+      if (n.parent !== null && smallNode(a, n) && subtreeSize(a, n) > 2) return [];  // hide 2+ nodes, else no gain
+      if (n.children.length >= FOLD_SIBLINGS) {
+        var keep = n.children.filter(function (c) { return !smallNode(a, a.nodes[c]); });
+        if (n.children.length - keep.length >= 2) return keep;
+      }
+      return n.children;
+    };
+  }
+  function descendants(a, n, out) {
+    out = out || [];
+    n.children.forEach(function (c) { out.push(a.nodes[c]); descendants(a, a.nodes[c], out); });
+    return out;
+  }
+  function reveal(p, id) {
+    var a = p.a, n = a.nodes[id];
+    if (!n || !foldOn(a)) return;
+    var kids = kidsFn(p);
+    for (var c = n; c.parent !== null; c = a.nodes[c.parent]) {
+      if (kids(a.nodes[c.parent]).indexOf(c.id) < 0) { p.open = p.open || {}; p.open[c.parent] = true; }
+    }
+  }
   function metric(a, n, mode) {
     var R = runtime(a);
     if (mode === "lq") return { bin: qBin(n.lq), text: n.lq === null ? (n.never ? "never executed" : "–") : "sai số " + C.fmtFactor(n.lq) };
@@ -203,32 +270,47 @@
   }
 
   // ---- diagram
-  var NW = 232, NH = 92, GX = 22, GY = 74, graphEls = {};
-  function layout(nodes) {
-    var w = {}, pos = {}, maxDepth = 0;
+  var NW = 232, NH = 102, GX = 22, GY = 74, STUBW = 150, STUBH = 24, graphEls = {}, graphStubs = {}, graphL = null;
+  // Tidy top-down tree. A node with hidden (folded) children gets one extra slot, after its visible children, for the
+  // "+N node" stub; L.stubs[parent id] = {x: centre, y: top} of that stub.
+  function layout(nodes, kidsOf) {
+    kidsOf = kidsOf || function (n) { return n.children; };
+    var w = {}, pos = {}, stubs = {}, bottom = 0;
+    function items(n) {
+      var its = kidsOf(n).map(function (c) { return { n: nodes[c] }; });
+      if (its.length < n.children.length) its.push({ stub: n.id });
+      return its;
+    }
+    function iw(it) { return it.n ? w[it.n.id] : STUBW; }
     function sw(n) {
-      var kids = n.children.map(function (c) { return nodes[c]; });
-      if (!kids.length) return (w[n.id] = NW);
-      var t = 0;
-      kids.forEach(function (k) { t += sw(k); });
-      t += GX * (kids.length - 1);
+      var its = items(n);
+      if (!its.length) return (w[n.id] = NW);
+      var t = GX * (its.length - 1);
+      its.forEach(function (it) { if (it.n) sw(it.n); t += iw(it); });
       return (w[n.id] = Math.max(NW, t));
     }
     function place(n, left, depth) {
-      maxDepth = Math.max(maxDepth, depth);
-      var cx = left + w[n.id] / 2;
-      pos[n.id] = { x: cx - NW / 2, y: depth * (NH + GY) };
-      var kids = n.children.map(function (c) { return nodes[c]; });
-      var tot = GX * (kids.length - 1);
-      kids.forEach(function (k) { tot += w[k.id]; });
+      var cx = left + w[n.id] / 2, y = depth * (NH + GY);
+      pos[n.id] = { x: cx - NW / 2, y: y };
+      bottom = Math.max(bottom, y + NH);
+      var its = items(n), tot = GX * (its.length - 1);
+      its.forEach(function (it) { tot += iw(it); });
       var x = cx - tot / 2;
-      kids.forEach(function (k) { place(k, x, depth + 1); x += w[k.id] + GX; });
+      its.forEach(function (it) {
+        if (it.n) place(it.n, x, depth + 1);
+        else { stubs[n.id] = { x: x + STUBW / 2, y: y + NH + GY }; bottom = Math.max(bottom, y + NH + GY + STUBH); }
+        x += iw(it) + GX;
+      });
     }
     sw(nodes[0]);
     place(nodes[0], 0, 0);
-    return { pos: pos, width: w[0], height: (maxDepth + 1) * (NH + GY) - GY };
+    return { pos: pos, stubs: stubs, width: w[0], height: bottom, kids: kidsOf };
   }
-  function edgeWidth(n) {
+  // Edge = what the child hands to its parent: by default the share of the runtime spent in the child's subtree
+  // (linear, so a 2× thicker edge carries 2× the time); otherwise the rows it returns (log scale).
+  function edgeByTime(a) { return state.edgeBy === "time" && timed(a); }
+  function edgeWidth(a, n) {
+    if (edgeByTime(a)) return Math.min(24, 1.5 + 22 * Math.min(1, (inclOf(n) || 0) / runtime(a)));
     var r = n.analyzed ? (n.act_total || 0) : n.est_total;
     return Math.min(16, 1.5 + 2.4 * Math.log10(Math.max(r, 1)));
   }
@@ -238,17 +320,35 @@
     return hay.indexOf(q) >= 0;
   }
   function viewGraph(box) {
-    var a = plan().a, nodes = a.nodes;
+    var pl = plan(), a = pl.a, nodes = a.nodes, tm = timed(a), R = runtime(a), ranks = hotRanks(a), top1 = topHot(a);
+    if (state.sel !== null) reveal(pl, state.sel);
     var sel = h("select", { id: "colorby", "aria-label": "Tô màu node theo", onchange: function (e) { state.color = e.target.value; renderView(); } },
       MODES.map(function (m) { var o = h("option", { value: m[0], text: m[1] }); if (m[0] === state.color) o.selected = true; return o; }));
+    var edgeSel = tm ? h("select", { id: "edgeby", "aria-label": "Độ dày cạnh theo", onchange: function (e) { state.edgeBy = e.target.value; renderView(); } },
+      [["time", "Thời gian của nhánh"], ["rows", "Số dòng"]].map(function (m) { var o = h("option", { value: m[0], text: m[1] }); if (m[0] === state.edgeBy) o.selected = true; return o; })) : null;
+    var foldBox = tm ? h("input", { type: "checkbox", id: "fold", onchange: function (e) { state.fold = e.target.checked; pl.open = {}; state.tf[state.cur] = null; renderView(); } }) : null;
+    if (foldBox) foldBox.checked = foldOn(a);
     var search = h("input", { type: "search", id: "nodesearch", placeholder: "Tìm bảng, CTE, điều kiện…", value: state.search, "aria-label": "Tìm node",
       oninput: function (e) { state.search = e.target.value; applyGraphClasses(); } });
-    var panel = h("div", { class: "panel" }, [
-      h("div", { class: "tools" }, [h("label", null, ["Tô màu theo", sel]), h("label", null, [search]), h("span", { class: "sp" }),
-        h("span", { class: "muted", style: { "font-size": "12px" }, text: "Độ dày cạnh = số dòng đi lên node cha. Kéo để di chuyển, cuộn để phóng to." })]),
-      legendFor(state.color)
+    var goHot = top1 !== null ? h("button", { class: "btn small", id: "gohot", title: "Chọn và đưa node tốn thời gian riêng nhiều nhất vào giữa khung",
+      text: "Đến điểm nóng", onclick: function () { focusNode(top1); } }) : null;
+    var edgeNote = edgeByTime(a) ? "Độ dày cạnh = % thời gian của cả nhánh con, tỉ lệ thuận: cạnh dày gấp đôi là gấp đôi thời gian."
+      : "Độ dày cạnh = số dòng đi lên node cha (thang log).";
+    var guide = h("div", { class: "legend" }, [
+      tm ? h("span", null, [h("span", { class: "sw-bar" }, [h("i", { class: "in" }), h("i", { class: "ex" })]), "Thanh dưới node: phần nổi = thời gian riêng, phần mờ = gồm cả node con"]) : null,
+      top1 !== null ? h("span", null, [h("span", { class: "sw-rank", text: "1" }), "3 node tốn thời gian riêng nhất (≥5%)"]) : null,
+      h("span", { text: edgeNote }),
+      h("span", { class: "muted", text: "Kéo để di chuyển, cuộn để phóng to." })
     ]);
-    var L = layout(nodes);
+    var panel = h("div", { class: "panel" }, [
+      h("div", { class: "tools" }, [goHot, h("label", null, ["Tô màu theo", sel]), edgeSel ? h("label", null, ["Độ dày cạnh", edgeSel]) : null,
+        foldBox ? h("label", { title: "Nhánh chiếm dưới 1% thời gian được thu lại thành một nút +N; bấm nút đó để mở" }, [foldBox, "Gộp nhánh < 1% thời gian"]) : null,
+        h("label", null, [search])]),
+      legendFor(state.color),
+      guide
+    ]);
+    var L = layout(nodes, kidsFn(pl));
+    graphL = L;
     var vp = s("g", { id: "vp" });
     var svg = s("svg", { role: "img", "aria-label": "Sơ đồ cây plan" }, vp);
     var canvas = h("div", { class: "canvas", id: "canvas" }, [svg]);
@@ -261,27 +361,36 @@
     panel.appendChild(canvas);
     box.appendChild(panel);
     graphEls = {};
+    graphStubs = {};
     var eg = s("g"), ng = s("g"), lg = s("g");
     vp.appendChild(eg); vp.appendChild(lg); vp.appendChild(ng);
-    nodes.forEach(function (n) {
-      var p = L.pos[n.id];
+    var shown = [];
+    (function walk(n) { shown.push(n); L.kids(n).forEach(function (c) { walk(nodes[c]); }); })(nodes[0]);
+    shown.forEach(function (n) {
+      var p = L.pos[n.id], share = tm ? Math.min(1, (inclOf(n) || 0) / R) : null;
       if (n.parent !== null) {
-        var pp = L.pos[n.parent], x1 = p.x + NW / 2, y1 = p.y, x2 = pp.x + NW / 2, y2 = pp.y + NH;
+        var pp = L.pos[n.parent], x1 = p.x + NW / 2, y1 = p.y, x2 = pp.x + NW / 2, y2 = pp.y + NH, ew = edgeWidth(a, n);
         var cls = "edge" + (n.hot && a.nodes[n.parent].hot ? " hot" : "") + (n.rel === "InitPlan" || n.rel === "SubPlan" ? " sub" : "");
         eg.appendChild(s("path", { class: cls, d: "M" + x1 + "," + y1 + " C" + x1 + "," + (y1 - GY / 2) + " " + x2 + "," + (y2 + GY / 2) + " " + x2 + "," + y2,
-          "stroke-width": edgeWidth(n).toFixed(1) }));
+          "stroke-width": ew.toFixed(1) }));
         var rows = n.analyzed ? (n.never ? "0" : C.fmtNum(n.act_total)) : "~" + C.fmtNum(n.est_total);
-        lg.appendChild(s("text", { class: "elabel", x: x1 + 9, y: y1 - 8, text: rows + (n.analyzed && n.loops > 1 ? " (" + C.fmtNum(n.loops) + " loop)" : "") }));
+        var et = rows + " dòng" + (n.analyzed && n.loops > 1 ? " (" + C.fmtNum(n.loops) + " loop)" : "");
+        if (edgeByTime(a) && inclOf(n) !== null) et = pctText(share) + " · " + et;
+        lg.appendChild(s("text", { class: "elabel", x: x1 + Math.max(9, ew / 2 + 6), y: y1 - 8, text: et }));
         if (n.sub) lg.appendChild(s("text", { class: "slabel", x: p.x, y: y1 - 26, text: trunc(n.sub, 34) }));
       }
-      var g = s("g", { class: "nd", transform: "translate(" + p.x + "," + p.y + ")", tabindex: "0", role: "button", "aria-label": "#" + n.id + " " + nodeName(n),
+      var rk = ranks[n.id];
+      var tip = "#" + n.id + " " + nodeName(n) + (n.sub ? " [" + n.sub + "]" : "") +
+        (rk ? "\nĐiểm nóng " + rk + ": " + pctText(n.excl / R) + " thời gian riêng" : "") +
+        (tm && inclOf(n) !== null ? "\nGồm node con: " + pctText(share) + " (" + C.fmtMs(inclOf(n)) + ")" : "");
+      var g = s("g", { class: "nd", transform: "translate(" + p.x + "," + p.y + ")", tabindex: "0", role: "button", "aria-label": "#" + n.id + " " + nodeName(n) + (rk ? ", điểm nóng " + rk : ""),
         onclick: function (ev) { if (!canvas._moved) select(n.id, false); }, onkeydown: function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(n.id, false); } } });
-      g.appendChild(s("title", { text: "#" + n.id + " " + nodeName(n) + (n.sub ? " [" + n.sub + "]" : "") }));
+      g.appendChild(s("title", { text: tip }));
       g.appendChild(s("rect", { class: "box", width: NW, height: NH, rx: 6 }));
       var m = metric(a, n, state.color);
       g.appendChild(s("rect", { class: "f-" + m.bin, width: NW, height: 24, rx: 6 }));
       g.appendChild(s("rect", { class: "f-" + m.bin, y: 14, width: NW, height: 10 }));
-      g.appendChild(s("text", { class: "tb o-" + m.bin, x: 9, y: 16.5, text: trunc(m.text, 30) }));
+      g.appendChild(s("text", { class: "tb o-" + m.bin, x: rk ? 15 : 9, y: 16.5, text: trunc(m.text, 30) }));
       if (n.insights.length) {
         var top = a.insights[n.insights[0]];
         g.appendChild(s("text", { class: "tb o-" + m.bin, x: NW - 9, y: 16.5, "text-anchor": "end", text: (SEVL[top.sev] || top.sev) + (n.insights.length > 1 ? " +" + (n.insights.length - 1) : "") }));
@@ -301,24 +410,86 @@
         g.appendChild(s("rect", { class: "f-" + qb, x: NW - 9 - qw, y: 67, width: qw, height: 18, rx: 3 }));
         g.appendChild(s("text", { class: "tb o-" + qb, x: NW - 9 - qw / 2, y: 80, "text-anchor": "middle", text: qt }));
       }
-      if (n.hot) g.setAttribute("class", "nd hot");
+      if (tm) {
+        // time bar: light = the node with everything under it, dark = the node alone
+        var bw = NW - 18, fe = Math.min(1, Math.max(0, (n.excl || 0) / R));
+        g.appendChild(s("rect", { class: "tbar-bg", x: 9, y: 89, width: bw, height: 6, rx: 2 }));
+        if (share > 0) g.appendChild(s("rect", { class: "tbar-in", x: 9, y: 89, width: Math.max(2, bw * share), height: 6, rx: 2 }));
+        if (fe > 0) g.appendChild(s("rect", { class: "tbar-ex", x: 9, y: 89, width: Math.max(2, bw * fe), height: 6, rx: 2 }));
+      }
+      if (rk) {
+        g.appendChild(s("circle", { class: "rank", cx: 0, cy: 0, r: 11 }));
+        g.appendChild(s("text", { class: "rank-t", x: 0, y: 4.2, "text-anchor": "middle", text: String(rk) }));
+      }
       ng.appendChild(g);
       graphEls[n.id] = g;
+      var sp = L.stubs[n.id];
+      if (sp) {
+        var vis = L.kids(n), hidden = [], hshare = 0;
+        n.children.forEach(function (c) {
+          if (vis.indexOf(c) >= 0) return;
+          hidden.push(nodes[c]);
+          descendants(a, nodes[c], hidden);
+          hshare += inclOf(nodes[c]) || 0;
+        });
+        hshare = Math.min(1, hshare / R);
+        var lbl = "+" + hidden.length + " node · " + pctText(hshare), pw = Math.min(STUBW, 24 + lbl.length * 6.6);
+        var px = p.x + NW / 2, py = p.y + NH;
+        eg.appendChild(s("path", { class: "edge sub", "stroke-width": "1.5",
+          d: "M" + sp.x + "," + sp.y + " C" + sp.x + "," + (sp.y - GY / 2) + " " + px + "," + (py + GY / 2) + " " + px + "," + py }));
+        var st = s("g", { class: "stub", transform: "translate(" + sp.x + "," + sp.y + ")", tabindex: "0", role: "button",
+          "aria-label": "Mở " + hidden.length + " node đang gộp dưới #" + n.id,
+          onclick: function () { if (!canvas._moved) unfold(n.id); },
+          onkeydown: function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); unfold(n.id); } } }, [
+          s("title", { text: hidden.length + " node, tổng " + pctText(hshare) + " thời gian (mỗi nhánh dưới 1%). Bấm để mở." }),
+          s("rect", { x: -pw / 2, y: 0, width: pw, height: STUBH, rx: 12 }),
+          s("text", { x: 0, y: 16, "text-anchor": "middle", text: lbl })
+        ]);
+        st._hidden = hidden;
+        ng.appendChild(st);
+        graphStubs[n.id] = st;
+      }
     });
     enablePanZoom(canvas, vp, L);
     applyGraphClasses();
     var tf = state.tf[state.cur];
-    if (tf) applyTf(vp, tf); else requestAnimationFrame(function () { fit(L); if (state.sel !== null) centerOn(state.sel, true); });
+    if (tf) applyTf(vp, tf);
+    else requestAnimationFrame(function () {
+      fit(L);
+      var target = state.sel !== null && L.pos[state.sel] ? state.sel : top1;
+      // A big tree fitted into the frame is too small to read: open on the selected node / the hot spot instead.
+      if (curTf().k < 0.5 && target !== null) { curTf().k = 0.85; centerOn(target, false); }
+      else if (state.sel !== null) centerOn(state.sel, true);
+    });
+  }
+  function unfold(id) {
+    var pl = plan();
+    pl.open = pl.open || {};
+    pl.open[id] = true;
+    renderView();
+  }
+  function focusNode(id) {
+    select(id, false);
+    if (state.view !== "graph") return;
+    var tf = curTf();
+    if (tf.k < 0.7) tf.k = 0.85;
+    centerOn(id, false);
   }
   function applyGraphClasses() {
     var a = plan() && plan().a;
     if (!a) return;
-    var q = (state.search || "").trim().toLowerCase();
+    var q = (state.search || "").trim().toLowerCase(), R = runtime(a), cold = state.color === "time" && timed(a);
     a.nodes.forEach(function (n) {
       var g = graphEls[n.id];
       if (!g) return;
-      var cls = "nd" + (n.hot ? " hot" : "") + (n.id === state.sel ? " sel" : "") + (q && !searchHit(n, q) ? " dim" : "");
+      var v = inclOf(n);
+      var cls = "nd" + (n.hot ? " hot" : "") + (n.id === state.sel ? " sel" : "") +
+        (cold && !n.hot && v !== null && v < R * FOLD_PCT ? " cold" : "") + (q && !searchHit(n, q) ? " dim" : "");
       g.setAttribute("class", cls);
+    });
+    Object.keys(graphStubs).forEach(function (id) {
+      var st = graphStubs[id];
+      st.setAttribute("class", "stub" + (q && st._hidden.some(function (n) { return searchHit(n, q); }) ? " hit" : ""));
     });
   }
   function applyTf(vp, tf) { vp.setAttribute("transform", "translate(" + tf.x.toFixed(1) + "," + tf.y.toFixed(1) + ") scale(" + tf.k.toFixed(4) + ")"); }
@@ -368,9 +539,16 @@
     canvas.addEventListener("pointercancel", end);
   }
   function centerOn(id, onlyIfHidden) {
-    var c = $("canvas"), g = graphEls[id];
-    if (!c || !g) return;
-    var L = layout(plan().a.nodes), p = L.pos[id], tf = curTf();
+    var c = $("canvas");
+    if (!c || !graphL) return;
+    if (!graphL.pos[id]) {
+      // the node sits inside a folded branch: open it and draw again
+      reveal(plan(), id);
+      renderView();
+      c = $("canvas");
+      if (!c || !graphL.pos[id]) return;
+    }
+    var p = graphL.pos[id], tf = curTf();
     var sx = p.x * tf.k + tf.x, sy = p.y * tf.k + tf.y, cw = c.clientWidth, ch = c.clientHeight;
     if (onlyIfHidden && sx > 10 && sy > 10 && sx + NW * tf.k < cw - 10 && sy + NH * tf.k < ch - 10) return;
     tf.x = cw / 2 - (p.x + NW / 2) * tf.k;
@@ -758,6 +936,8 @@
     if (n.sub) tags.push(h("span", { class: "tag", text: n.sub }));
     else if (n.rel) tags.push(h("span", { class: "tag", text: n.rel }));
     if (n.scope !== "main") tags.push(h("span", { class: "tag", text: n.scope.indexOf("cte:") === 0 ? "trong CTE " + n.scope.slice(4) : "trong sub-plan" }));
+    var rk = hotRanks(a)[n.id];
+    if (rk) tags.push(h("span", { class: "tag hot", text: "điểm nóng " + rk + " · " + pctText(n.excl / R) }));
     if (n.hot) tags.push(h("span", { class: "tag hot", text: "đường nóng" }));
     if (n.never) tags.push(h("span", { class: "tag", text: "never executed" }));
     if (r["Parallel Aware"]) tags.push(h("span", { class: "tag", text: "song song" }));

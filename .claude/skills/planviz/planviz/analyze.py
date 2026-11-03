@@ -310,8 +310,8 @@ def analyze(obj: Dict[str, Any], label: str = "", meta: Optional[Dict[str, Any]]
         if t == "CTE Scan":
             src = cte_root.get(n["raw"].get("CTE Name") or "")
             base = lq0(src) if src is not None else 0.0
-        elif not data:
-            base = 0.0
+        elif not data or (t == "Aggregate" and n["raw"].get("Strategy", "Plain") == "Plain"):
+            base = 0.0  # leaves, and plain aggregates (always one row per loop, whatever the input)
         elif t in JOIN_TYPES and len(data) >= 2:
             outer = next((c for c in data if c["rel"] == "Outer"), data[0])
             inner = next((c for c in data if c["rel"] == "Inner"), data[1])
@@ -535,8 +535,9 @@ def _insights(obj: Dict[str, Any], nodes: List[Dict[str, Any]], s: Dict[str, Any
         add("RESCAN", "high" if sh >= 0.5 else "medium", n["id"], node=name(n), loops=fmt_num(n["loops"]),
             rows=fmt_num(n["rows"]), pct=round(sh * 100))
 
-    # where the misestimates are born
-    origins = [n for n in nodes if n["local_lq"] is not None and abs(n["local_lq"]) >= 1]
+    # where the misestimates are born (only where the estimate itself is off ≥10×: a node that cancels an error
+    # inherited from its input is not a problem, and that input error is reported where it was born)
+    origins = [n for n in nodes if n["local_lq"] is not None and abs(n["local_lq"]) >= 1 and abs(n["lq"]) >= 1]
     origins.sort(key=lambda n: -abs(n["local_lq"]))
     for n in origins[:6]:
         a, sh = abs(n["local_lq"]), share(n.get("incl"))

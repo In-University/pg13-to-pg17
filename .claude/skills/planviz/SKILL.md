@@ -1,6 +1,6 @@
 ---
 name: planviz
-description: Analyse and visualise PostgreSQL EXPLAIN plans. Use when the user shares EXPLAIN / EXPLAIN ANALYZE output (JSON or text, psql copy, auto_explain log, pgdoctor capture directory) and wants to know where the time goes, how far the planner's row estimates are from reality (×N factors), which node the misestimate is born at, or wants to compare two or more plans of the same statement (e.g. PG13 vs PG17, before/after a fix). Produces a console summary for the agent and one self-contained offline HTML page (plan diagram with pan/zoom, depesz-style tree table, estimate-vs-actual log-log chart, time icicle, plan comparison, node inspector) that also accepts pasted or dropped plans in the browser.
+description: Analyse and visualise PostgreSQL EXPLAIN plans. Use when the user shares EXPLAIN / EXPLAIN ANALYZE output (JSON or text, psql copy, auto_explain log, pgdoctor capture directory) and wants to know where the time goes, how far the planner's row estimates are from reality (×N factors), which node the misestimate is born at, or wants to compare two or more plans of the same statement (e.g. PG13 vs PG17, before/after a fix). Produces a console summary for the agent and one self-contained offline HTML page (plan diagram with pan/zoom where edge width is the share of runtime and the top-3 hot spots are numbered, depesz-style tree table, estimate-vs-actual log-log chart, time icicle, plan comparison, node inspector) that also accepts pasted or dropped plans in the browser.
 ---
 
 # planviz
@@ -42,7 +42,12 @@ or `-` for stdin. Labels default to `.pgNN.` in the file name or the captured se
 - Exclusive time = inclusive time (× loops; parallel workers counted once) minus children. CTE plans are charged to
   the CTE Scan that runs them; InitPlans to the node that evaluates their output (`(InitPlan n)` / `$n`).
 - Local error = q of the node ÷ what its inputs carry (join: outer × inner; semi/anti: outer; CTE Scan: the CTE's
-  own q). A large local error marks the predicate / join condition whose selectivity the planner got wrong.
+  own q; plain Aggregate: nothing). A large local error marks the predicate / join condition whose selectivity the
+  planner got wrong; MISEST is raised only where the node's own estimate is also ≥10× off (not where it cancels an
+  inherited error).
+- Diagram: edge width = share of runtime in the child's subtree (or rows, log scale); bar under each node = exclusive
+  (strong) and inclusive (faint) share; ①②③ = the three largest exclusive-time nodes (≥5%); "Đến điểm nóng" centres
+  on ①. Branches under 1% of the runtime fold into "+N node" stubs (automatic above 30 nodes).
 - Findings: SUBPLAN_RESCAN (non-hashed NOT IN / correlated SubPlan, with the hash-memory threshold), RESCAN, MISEST,
   HOTSPOT, SORT_SPILL, HASH_SPILL, HASHAGG_SPILL, TEMP_IO, FILTER_WASTE, LOSSY_BITMAP, HEAP_FETCHES, WORKERS, MEMOIZE,
   JIT, TRIGGERS, PLANNING, NO_ANALYZE, NO_TIMING, NEVER_EXECUTED. Texts live in `planviz/assets/rules.json`.

@@ -505,7 +505,7 @@
       var data = n.children.map(function (c) { return nodes[c]; }).filter(function (c) { return c.rel !== "InitPlan" && c.rel !== "SubPlan"; });
       var t = n.type, base;
       if (t === "CTE Scan") { var src = cteRoot[n.raw["CTE Name"] || ""]; base = src ? lq0(src) : 0; }
-      else if (!data.length) base = 0;
+      else if (!data.length || (t === "Aggregate" && (n.raw["Strategy"] || "Plain") === "Plain")) base = 0;
       else if (has(JOIN_TYPES, t) && data.length >= 2) {
         var outer = data.filter(function (c) { return c.rel === "Outer"; })[0] || data[0];
         var inner = data.filter(function (c) { return c.rel === "Inner"; })[0] || data[1];
@@ -678,7 +678,7 @@
       add("RESCAN", sh >= 0.5 ? "high" : "medium", n.id, { node: name(n), loops: fmtNum(n.loops), rows: fmtNum(n.rows), pct: rnd(sh * 100) });
     });
 
-    var origins = nodes.filter(function (n) { return n.local_lq !== null && Math.abs(n.local_lq) >= 1; })
+    var origins = nodes.filter(function (n) { return n.local_lq !== null && Math.abs(n.local_lq) >= 1 && Math.abs(n.lq) >= 1; })
       .sort(function (a, b) { return Math.abs(b.local_lq) - Math.abs(a.local_lq) || a.id - b.id; });
     origins.slice(0, 6).forEach(function (n) {
       var a = Math.abs(n.local_lq), sh = share(n.incl);

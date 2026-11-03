@@ -69,6 +69,32 @@ def plan(root, **meta):
     return obj
 
 
+def cancelling_plan():
+    """Plain Aggregate over a Hash Join whose ↓100× selectivity error cancels the ↑100× its outer input carries."""
+    outer = scan("a", 10, 1000, t=5.0, **{"Parent Relationship": "Outer", "Filter": "(a.k = 1)"})
+    inner = {"Node Type": "Hash", "Parent Relationship": "Inner", "Plan Rows": 100, "Plan Width": 8, "Total Cost": 1,
+             "Actual Rows": 100, "Actual Loops": 1, "Actual Total Time": 2.0, "Plans": [scan("b", 100, 100, t=1.0, **{"Parent Relationship": "Outer"})]}
+    join = {"Node Type": "Hash Join", "Join Type": "Inner", "Parent Relationship": "Outer", "Plan Rows": 1000, "Plan Width": 8,
+            "Total Cost": 1, "Actual Rows": 1000, "Actual Loops": 1, "Actual Total Time": 20.0, "Plans": [outer, inner]}
+    root = {"Node Type": "Aggregate", "Strategy": "Plain", "Plan Rows": 1, "Plan Width": 8, "Total Cost": 1,
+            "Actual Rows": 1, "Actual Loops": 1, "Actual Total Time": 25.0, "Plans": [join]}
+    return plan(root, **{"Execution Time": 25.0, "Planning Time": 0.5})
+
+
+def partitioned_plan(parts=60):
+    """Append over many small partitions next to a hot Nested Loop (the shape the diagram folds)."""
+    kids = [scan("p%03d" % i, 1000, 1000, t=0.5, **{"Parent Relationship": "Member"}) for i in range(parts)]
+    append = {"Node Type": "Append", "Parent Relationship": "Outer", "Plan Rows": 1000 * parts, "Plan Width": 8, "Total Cost": 1,
+              "Actual Rows": 1000 * parts, "Actual Loops": 1, "Actual Total Time": 0.6 * parts, "Plans": kids}
+    nl = {"Node Type": "Nested Loop", "Join Type": "Inner", "Parent Relationship": "Inner", "Plan Rows": 900, "Plan Width": 8,
+          "Total Cost": 1, "Actual Rows": 52000, "Actual Loops": 1, "Actual Total Time": 9000.0,
+          "Plans": [scan("c", 900, 52000, t=90.0, **{"Parent Relationship": "Outer"}),
+                    dict(scan("x", 1, 1, loops=52000, t=0.17, **{"Parent Relationship": "Inner"}), **{"Node Type": "Index Scan", "Index Name": "x_pkey"})]}
+    root = {"Node Type": "Hash Join", "Join Type": "Inner", "Plan Rows": 40000, "Plan Width": 8, "Total Cost": 1,
+            "Actual Rows": 52000, "Actual Loops": 1, "Actual Total Time": 9500.0, "Plans": [append, nl]}
+    return plan(root, **{"Execution Time": 9500.0, "Planning Time": 2.0})
+
+
 class LoaderTests(unittest.TestCase):
     def test_psql_decorated_json(self):
         lp = load(os.path.join(LAB, "remedies", "E0_pg17_baseline.json"))
@@ -244,6 +270,15 @@ class InsightTests(unittest.TestCase):
                             "JIT": {"Timing": {"Total": 150.0}}})
         got = {i["rule"] for i in analyze(obj)["insights"]}
         self.assertTrue({"RESCAN", "FILTER_WASTE", "TRIGGERS", "JIT", "MISEST", "HOTSPOT"} <= got, got)
+
+    def test_misestimate_reported_where_born_not_where_cancelled(self):
+        a = analyze(cancelling_plan())
+        agg, join = a["nodes"][0], a["nodes"][1]
+        self.assertEqual(agg["local_lq"], 0.0)                     # plain aggregate: one row whatever the input
+        self.assertAlmostEqual(join["local_lq"], -2.0)              # ↓100× here, but the estimate itself is right
+        mis = [i["node"] for i in a["insights"] if i["rule"] == "MISEST"]
+        scan_a = node_by(a, lambda n: n["object"].startswith("a"))
+        self.assertEqual(mis, [scan_a["id"]])
 
     def test_every_rule_has_templates(self):
         rules = load_rules()
@@ -421,22 +456,32 @@ class JsParityTests(unittest.TestCase):
     def test_analysis_parity(self):
         self.assertGreater(len(self.FILES), 20)
         for p in self.FILES:
-            py = A(p)
-            js = self.run_node("analyze", p)["plans"][0]
-            self.assertEqual(len(py["nodes"]), len(js["nodes"]), p)
-            for a, b in zip(py["nodes"], js["nodes"]):
-                for k in ("incl", "excl", "lq", "base_lq", "local_lq", "est_total", "act_total", "removed"):
-                    self.close(a[k], b[k], p, f"#{a['id']} {k}")
-                for k in ("label", "object", "time_parent", "hot", "scope", "parent", "children", "loops"):
-                    self.assertEqual(a[k], b[k], f"{p}: #{a['id']} {k}")
-                self.assertEqual(set(a["buf_excl"]), set(b["buf_excl"]), p)
-                for k, v in a["buf_excl"].items():
-                    self.close(v, b["buf_excl"][k], p, f"#{a['id']} {k}")
-            self.assertEqual([(i["rule"], i["sev"], i["node"]) for i in py["insights"]],
-                             [(i["rule"], i["sev"], i["node"]) for i in js["insights"]], p)
-            rules = load_rules()
-            for i, j in zip(py["insights"], js["insights"]):
-                self.assertEqual(render_insight(i, rules)["title"], render_insight(j, rules)["title"], p)
+            self.check_analysis(p)
+
+    def test_synthetic_parity(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name, obj in (("cancel.json", cancelling_plan()), ("parts.json", partitioned_plan())):
+                p = os.path.join(d, name)
+                wr(p, json.dumps(obj))
+                self.check_analysis(p)
+
+    def check_analysis(self, p):
+        py = A(p)
+        js = self.run_node("analyze", p)["plans"][0]
+        self.assertEqual(len(py["nodes"]), len(js["nodes"]), p)
+        for a, b in zip(py["nodes"], js["nodes"]):
+            for k in ("incl", "excl", "lq", "base_lq", "local_lq", "est_total", "act_total", "removed"):
+                self.close(a[k], b[k], p, f"#{a['id']} {k}")
+            for k in ("label", "object", "time_parent", "hot", "scope", "parent", "children", "loops"):
+                self.assertEqual(a[k], b[k], f"{p}: #{a['id']} {k}")
+            self.assertEqual(set(a["buf_excl"]), set(b["buf_excl"]), p)
+            for k, v in a["buf_excl"].items():
+                self.close(v, b["buf_excl"][k], p, f"#{a['id']} {k}")
+        self.assertEqual([(i["rule"], i["sev"], i["node"]) for i in py["insights"]],
+                         [(i["rule"], i["sev"], i["node"]) for i in js["insights"]], p)
+        rules = load_rules()
+        for i, j in zip(py["insights"], js["insights"]):
+            self.assertEqual(render_insight(i, rules)["title"], render_insight(j, rules)["title"], p)
 
     def test_match_parity(self):
         pairs = [(PG13, PG17), (PG13, PG17_NE), (PG17, PG17_HINT)]
